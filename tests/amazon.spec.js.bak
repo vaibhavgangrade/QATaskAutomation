@@ -1,0 +1,35 @@
+import { test, expect } from '@playwright/test'
+import { ai } from '@zerostep/playwright'
+import BrowserManager from '../utils/browser-manager'
+
+test.describe('Amazon', () => {
+    test('Originate app using Amazon option', async () => {
+        const { browser, context, page } = await BrowserManager.createFreshBrowser();
+        const aiArgs = { page, test }
+        await page.goto("https://www.amazon.com/USA/s?k=USA")
+        await page.waitForTimeout(3000)
+        const searchTerm = 'sofa'
+        await ai('click on the Hello, sign in span', aiArgs)
+        await page.waitForTimeout(3000)
+        await ai(`Enter 'weavernormar@gmail.com' in the email input field`, aiArgs)
+        await ai('click on the "Continue" button on page', aiArgs)
+        await page.waitForTimeout(3000)
+        await ai(`Enter 'Welcome@123456' in the password input field`, aiArgs)
+        await ai('click on the "Sign in" button on page', aiArgs)
+        await page.waitForTimeout(3000)
+        await ai(`search for ${searchTerm}`, aiArgs)
+        await page.keyboard.press('Enter')
+        await page.waitForTimeout(2000)
+        await page.locator('button:has-text("Add to cart")').first().scrollIntoViewIfNeeded()
+        await page.waitForTimeout(1000)
+        await ai('click on the first Add to Cart button in span', aiArgs)
+        await page.waitForTimeout(2000)
+        await page.goto("https://www.amazon.com/gp/cart/view.html?ref_=nav_cart")
+        await page.waitForTimeout(2000)
+        await page.locator('input[data-feature-id="proceed-to-checkout-action"]').click()
+        await page.waitForTimeout(2000)
+        await expect(page.locator('span.break-word').nth(3)).toHaveText('Order total:');
+
+
+    })
+})

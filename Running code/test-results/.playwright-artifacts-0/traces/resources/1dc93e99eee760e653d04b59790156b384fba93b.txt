@@ -1,0 +1,1 @@
+{"rid":"62KGM9VV0TTMF8BRVQG1","sid":"140-4049073-5467667","mid":"ATVPDKIKX0DER","sn":"www.amazon.com","reqs":[{"navigation":{"quirks":0}},{"navigation":{"t":"ewc"}},{"csm":{"k":"chk","f":1,"l":{"navigation":2,"csm":1},"s":"full"}},{"csmcount":{"counter":"foresterPayloadSize","t":0,"value":296}}]}
