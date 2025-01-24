@@ -34,7 +34,7 @@ test.describe('Amazon Tests', () => {
     });
 
     test('Execute Excel Steps', async ({ page }) => {
-        // await page.goto('https://www.amazon.com');
+        await page.goto('https://www.amazon.com');
         
         for (let i = 0; i < testSteps.length; i++) {
             const step = testSteps[i];
@@ -53,6 +53,11 @@ test.describe('Amazon Tests', () => {
                     const aiCommand = convertToAiCommand(step);
                     console.log(`Executing AI command: ${aiCommand}`);
                     await ai(aiCommand, { page, test });
+                }
+
+                //Assertion
+                if (step.action.toLowerCase() === 'assert') {
+                    await expect(page.locator(step.locator)).toHaveText(step.value)
                 }
 
                 // Handle post-wait
