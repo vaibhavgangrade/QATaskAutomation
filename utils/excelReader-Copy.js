@@ -36,29 +36,19 @@ export function convertToAiCommand(step) {
 
     switch (action) {
         case 'click':
-            return `Click on the element containing text "${locator}"`;
-        case 'nclick':
-            return `Click the ${value} "${locator}" text on the page`;
+            return `Click on the "${locator}"`;
         case 'type':
-            return `Type '${value}' into the field labeled ${locator}`;
+            return `Enter "${value}" in the ${locator}`;
         case 'select':
-            return `Select '${value}' from the element containing text "${locator}"`;   
+            return `Select "${value}" from the ${locator}`;
         case 'hover':
-            return `Hover over the element containing text "${locator}"`;
+            return `Hover over the "${locator}"`;
         case 'press':
-            return `Press '${value}' in the element "${locator}"`;
+            return `Press ${value} in the "${locator}"`;
         case 'scroll':
-            return `scroll until the element containing text "${locator}" is visible`;
+            return `Scroll to the "${locator}"`;
         case 'verify':
-            return `Verify that the element containing text "${locator}" contains '${value}'`;
-        case 'waitfortext':
-            return `Wait until the text "${locator}" becomes visible on the page`;
-        case 'findlocator':
-            return `Look for elements with "${locator}" text containing '${value} and click it'`;
-        case 'stype':
-            if (locator.toLowerCase().includes('search')) {
-                return `Look for a search box or search button at the top of the page. Click it to open or activate the search input. Once the search input is visible and active, carefully type "${value}" into it`;
-            }   
+            return `Verify that "${locator}" contains "${value}"`;
         default:
             return `${action} ${locator} ${value}`.trim();
     }
