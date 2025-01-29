@@ -35,7 +35,6 @@ export function convertToAiCommand(step) {
         const locator = step.locator || '';
         const value = step.value || '';
 
-<<<<<<< HEAD
         if (!action || !locator) {
             throw new Error('Invalid step: missing action or locator');
         }
@@ -81,34 +80,5 @@ export function convertToAiCommand(step) {
     catch (error) {
         console.error('Error converting to AI command:', error);
         throw new Error(`Failed to convert step to AI command: ${error.message}`);
-=======
-    switch (action) {
-        case 'click':
-            return `Click on the element containing text "${locator}"`;
-        case 'nclick':
-            return `Click the ${value} "${locator}" text on the page`;
-        case 'type':
-            return `Type '${value}' into the field labeled ${locator}`;
-        case 'select':
-            return `Select '${value}' from the element containing text "${locator}"`;   
-        case 'hover':
-            return `Hover over the element containing text "${locator}"`;
-        case 'press':
-            return `Press '${value}' in the element "${locator}"`;
-        case 'scroll':
-            return `scroll until the element containing text "${locator}" is visible`;
-        case 'verify':
-            return `Verify that the element containing text "${locator}" contains '${value}'`;
-        case 'waitfortext':
-            return `Wait until the text "${locator}" becomes visible on the page`;
-        case 'findlocator':
-            return `Look for elements with "${locator}" text containing '${value} and click it'`;
-        case 'stype':
-            if (locator.toLowerCase().includes('search')) {
-                return `Look for a search box or search button at the top of the page. Click it to open or activate the search input. Once the search input is visible and active, carefully type "${value}" into it`;
-            }   
-        default:
-            return `${action} ${locator} ${value}`.trim();
->>>>>>> 556aab0990d0af230088553d82886a9c94ad0b9c
     }
 }
