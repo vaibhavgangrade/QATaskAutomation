@@ -9,7 +9,7 @@ export function readExcelFile(filePath) {
         }
 
         const workbook = XLSX.readFile(filePath);
-        
+
         if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
             throw new Error('Excel file contains no sheets');
         }
@@ -17,7 +17,7 @@ export function readExcelFile(filePath) {
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
         const data = XLSX.utils.sheet_to_json(worksheet);
-        
+
         if (!data || data.length === 0) {
             throw new Error('No data found in Excel sheet');
         }
@@ -30,26 +30,55 @@ export function readExcelFile(filePath) {
 }
 
 export function convertToAiCommand(step) {
-    const action = step.action.toLowerCase();
-    const locator = step.locator;
-    const value = step.value || '';
+    try {
+        const action = step.action?.toLowerCase() || '';
+        const locator = step.locator || '';
+        const value = step.value || '';
 
-    switch (action) {
-        case 'click':
-            return `Click on the "${locator}"`;
-        case 'type':
-            return `Enter "${value}" in the ${locator}`;
-        case 'select':
-            return `Select "${value}" from the ${locator}`;
-        case 'hover':
-            return `Hover over the "${locator}"`;
-        case 'press':
-            return `Press ${value} in the "${locator}"`;
-        case 'scroll':
-            return `Scroll to the "${locator}"`;
-        case 'verify':
-            return `Verify that "${locator}" contains "${value}"`;
-        default:
-            return `${action} ${locator} ${value}`.trim();
+        if (!action || !locator) {
+            throw new Error('Invalid step: missing action or locator');
+        }
+        switch (action) {
+            case 'click':
+                return `Click the button or div or span or input with text" ${locator}"`;
+            case 'nclick':
+                return `Click the ${value} button or div or span or input with text "${locator}"`;
+            case 'type':
+                return `Type '${value}' into the field labeled "${locator}"`;
+            case 'select':
+                return `Select '${value}' from the element containing text "${locator}"`;
+            case 'hover':
+                return `Hover over the element containing text "${locator}"`;
+            case 'press':
+                return `Press ${value} in the element "${locator}"`;
+            case 'pressto':
+                return `Press ${value} "${locator}" on page`;
+            case 'scroll':
+                if (value.toLowerCase() === 'up') {
+                    return `scroll up until you find the element containing text "${locator}"`;
+                } else if (value.toLowerCase() === 'down') {
+                    return `scroll down until you find the element containing text "${locator}"`;
+                } else {
+                    return `scroll until element containing text "${locator}" is visible`;
+                }    
+            case 'verify':
+                return `Verify that the element containing text "${locator}" contains '${value}'`;
+            case 'waitfortext':
+                return `Wait for any button or element containing "${locator}" to appear as visible`;
+            case 'findlocator':
+                return `Look for elements with "${locator}" text containing '${value} and click it'`;
+            case 'stype':
+                if (locator.toLowerCase().includes('search')) {
+                    return `Look for a search box or search button at the top of the page. Click it to open or activate the search input. Once the search input is visible and active, carefully type "${value}" into it`;
+                }
+            case 'dismissmodal':
+                return `Look for and close "${locator}" modal popup using common close patterns like X button, close button, or by pressing Escape key`;
+            default:
+                return `${action} ${locator} ${value}`.trim();
+        }
+    }
+    catch (error) {
+        console.error('Error converting to AI command:', error);
+        throw new Error(`Failed to convert step to AI command: ${error.message}`);
     }
 }

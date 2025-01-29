@@ -48,4 +48,5 @@ class initialBrowserSetup {
         }
     }
 }
+
 module.exports = initialBrowserSetup;

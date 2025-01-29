@@ -3,13 +3,15 @@ const { devices } = require('@playwright/test');
 
 const config = {
   testDir: './tests',
-  retries :0,
+  retries: 0,
+  workers: 1,
+  fullyParallel: false,
   
   /* Maximum time one test can run for. */
   timeout: 120 * 1000,
   expect: {
   
-    timeout: 5000
+    timeout: 10000
   },
   
   reporter: [
@@ -23,7 +25,7 @@ const config = {
     screenshot : 'on',
     trace : 'on',//off,on
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-    viewport: { width: 1420, height: 1080 },
+    viewport: { width: 1480, height: 1050 },
     deviceScaleFactor: 1,
     hasTouch: false,
     isMobile: false,
