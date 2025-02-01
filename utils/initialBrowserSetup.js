@@ -1,6 +1,5 @@
 class initialBrowserSetup {
     static async setupBrowser(context) {
-
         const storageState = {
             cookies: [
                 {

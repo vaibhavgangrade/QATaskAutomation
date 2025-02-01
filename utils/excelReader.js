@@ -44,7 +44,7 @@ export function convertToAiCommand(step) {
             case 'nclick':
                 return `Click the ${value} button or div or span or input with text "${locator}"`;
             case 'type':
-                return `Type '${value}' into the field labeled "${locator}"`;
+                return `Type '${value}' in input, textarea, placeholder, label or value labeled as "${locator}"`;
             case 'select':
                 return `Select '${value}' from the element containing text "${locator}"`;
             case 'hover':
@@ -73,6 +73,8 @@ export function convertToAiCommand(step) {
                 }
             case 'dismissmodal':
                 return `Look for and close "${locator}" modal popup using common close patterns like X button, close button, or by pressing Escape key`;
+            case 'devtools':
+                return `got otDevTools and click to the "${locator}" tab in DevTools`;
             default:
                 return `${action} ${locator} ${value}`.trim();
         }
@@ -80,5 +82,52 @@ export function convertToAiCommand(step) {
     catch (error) {
         console.error('Error converting to AI command:', error);
         throw new Error(`Failed to convert step to AI command: ${error.message}`);
+    }
+}
+
+export function getValueFromJson(filePath, jsonPath) {
+    try {
+        // Create directory if it doesn't exist
+        const dir = path.dirname(filePath);
+        if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+            console.log(`Created directory: ${dir}`);
+            return null;
+        }
+
+        // Check if file exists
+        if (!fs.existsSync(filePath)) {
+            console.log(`File doesn't exist: ${filePath}`);
+            return null;
+        }
+
+        // Read and parse JSON file
+        const jsonData = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+        
+        // Split the path into parts
+        const parts = jsonPath.split('.');
+        let value = jsonData;
+        
+        // Navigate through the object
+        for (const part of parts) {
+            // Handle array indices
+            if (part.includes('[') && part.includes(']')) {
+                const [arrayName, indexStr] = part.split('[');
+                const index = parseInt(indexStr.replace(']', ''));
+                value = value[arrayName][index];
+            } else {
+                value = value?.[part];
+            }
+            
+            if (value === undefined) {
+                console.log(`Path ${jsonPath} not found in JSON`);
+                return null;
+            }
+        }
+        
+        return value;
+    } catch (error) {
+        console.error(`Error reading value at path ${jsonPath}:`, error);
+        return null;
     }
 }

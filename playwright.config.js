@@ -21,6 +21,9 @@ const config = {
   use: {
 
     browserName : 'chromium',
+     // Launch browsers with DevTools open
+    //  devtools: true,
+     // Slow down execution by 1000ms
     headless : false,
     screenshot : 'on',
     trace : 'on',//off,on
@@ -32,7 +35,10 @@ const config = {
     
     // Additional launch arguments
     launchOptions: {
+      // slowMo: 1000,
+      // devtools: true,
         args: [
+            // '--auto-open-devtools-for-tabs',
             '--disable-blink-features=AutomationControlled',
             '--disable-features=IsolateOrigins,site-per-process',
             '--disable-site-isolation-trials',
