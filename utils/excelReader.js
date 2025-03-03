@@ -40,33 +40,35 @@ export function convertToAiCommand(step) {
         }
         switch (action) {
             case 'click':
-                return `Click the button or div or span or input with text" ${locator}"`;
+                return `Click on the "${locator}"`;
             case 'nclick':
-                return `Click the ${value} button or div or span or input with text "${locator}"`;
+                return `Click on the ${value} web element whose text as "${locator}"`;
             case 'type':
-                return `Type '${value}' in input, textarea, placeholder, label or value labeled as "${locator}"`;
+                return `Enter '${value}' in the "${locator}"`;
             case 'select':
-                return `Select '${value}' from the element containing text "${locator}"`;
+                return `Select '${value}' from the element with id or aria-label or name or placeholder or class or label with text as "${locator}"`;
+            case 'selectvalue':
+                return `ai("Click the dropdown or combo box labeled '${locator}', then select the option '${value}'")`;
             case 'hover':
-                return `Hover over the element containing text "${locator}"`;
+                return `Hover over the element containing text as "${locator}"`;
             case 'press':
-                return `Press ${value} in the element "${locator}"`;
+                return `Press ${value} in the element containing text as "${locator}"`;
             case 'pressto':
-                return `Press ${value} "${locator}" on page`;
+                return `Press ${value} web element whose text as "${locator}"`;
             case 'scroll':
                 if (value.toLowerCase() === 'up') {
-                    return `scroll up until you find the element containing text "${locator}"`;
+                    return `scroll up until you find the element containing text as "${locator}"`;
                 } else if (value.toLowerCase() === 'down') {
-                    return `scroll down until you find the element containing text "${locator}"`;
+                    return `scroll down until you find the element containing text as "${locator}"`;
                 } else {
-                    return `scroll until element containing text "${locator}" is visible`;
+                    return `Scroll to the "${locator}"`;
                 }    
             case 'verify':
-                return `Verify that the element containing text "${locator}" contains '${value}'`;
+                return `Verify that the element containing text as "${locator}" contains '${value}'`;
             case 'waitfortext':
                 return `Wait for any button or element containing "${locator}" to appear as visible`;
             case 'findlocator':
-                return `Look for elements with "${locator}" text containing '${value} and click it'`;
+                return `Look for the web element "${locator}" text containing '${value} and click it'`;
             case 'stype':
                 if (locator.toLowerCase().includes('search')) {
                     return `Look for a search box or search button at the top of the page. Click it to open or activate the search input. Once the search input is visible and active, carefully type "${value}" into it`;

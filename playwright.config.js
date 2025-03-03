@@ -1,32 +1,29 @@
 // @ts-check
-const { devices } = require('@playwright/test');
+const { defineConfig, devices } = require('@playwright/test');
+const path = require('path');
 
 const config = {
   testDir: './tests',
   retries: 0,
-  workers: 1,
-  fullyParallel: false,
+  workers: process.env.CI ? 1 : undefined, // Use max workers locally, 1 in CI
+  fullyParallel: true,  // Enable parallel execution
   
   /* Maximum time one test can run for. */
-  timeout: 120 * 1000,
+  timeout: 3 * 60 * 1000,
   expect: {
-  
-    timeout: 10000
+    timeout: 5000
   },
   
   reporter: [
     ['html', { open: 'always' }]  // 'always' will open report after each test run
   ],
+
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
-
-    browserName : 'chromium',
-     // Launch browsers with DevTools open
-    //  devtools: true,
-     // Slow down execution by 1000ms
-    headless : false,
-    screenshot : 'on',
-    trace : 'on',//off,on
+    browserName: 'chromium',
+    headless: false,
+    screenshot: 'on',
+    trace: 'on', //off,on
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
     viewport: { width: 1480, height: 1050 },
     deviceScaleFactor: 1,
@@ -35,10 +32,7 @@ const config = {
     
     // Additional launch arguments
     launchOptions: {
-      // slowMo: 1000,
-      // devtools: true,
         args: [
-            // '--auto-open-devtools-for-tabs',
             '--disable-blink-features=AutomationControlled',
             '--disable-features=IsolateOrigins,site-per-process',
             '--disable-site-isolation-trials',
@@ -54,7 +48,6 @@ const config = {
         ]
     }
   },
-
 };
 
 module.exports = config;
