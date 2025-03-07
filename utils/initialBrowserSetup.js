@@ -1,184 +1,160 @@
 import dotenv from 'dotenv';
+import { retailerConfig } from '../config/retailers.js';
 dotenv.config();
+const retailer = process.env.RETAILER || 'amazon';
+const config = retailerConfig[retailer];
+
+if (!config) {
+    throw new Error(`No configuration found for retailer: ${retailer}`);
+}
 
 class initialBrowserSetup {
     static async setupBrowser(context) {
         try {
-            // Generate realistic timestamps and session IDs
-            const timestamp = Math.floor(Date.now() / 1000);
-            const sessionId = Math.random().toString(36).substring(2, 15);
-            const deviceId = Math.random().toString(36).substring(2, 10);
-
-            // Add minimal OAuth and CSP bypass
-            await context.addInitScript(() => {
-                // Simple CSP bypass
-                const originalCreateElement = document.createElement;
-                document.createElement = function(...args) {
-                    const element = originalCreateElement.apply(this, args);
-                    if (element.tagName === 'SCRIPT') {
-                        element.setAttribute('nonce', 'bypass-csp');
-                    }
-                    return element;
-                };
-
-                // Basic OAuth helper
-                window._handleAuth = () => {
-                    const authElements = document.querySelectorAll('[class*="auth"], [id*="auth"], [class*="login"], [id*="login"]');
-                    authElements.forEach(el => {
-                        el.style.visibility = 'visible';
-                        el.style.display = 'block';
-                    });
-                };
-            });
-
+            // Define storage state with dynamic retailer name
             const storageState = {
                 cookies: [
                     {
                         name: 'session-id',
-                        value: sessionId,
-                        domain: '.'+process.env.retname+'.com',
+                        value: Date.now().toString(),
+                        domain: '.${config.domain}',
                         path: '/',
-                        secure: true,
-                        sameSite: 'Lax',
-                        expires: timestamp + 86400
-                    },
-                    {
-                        name: 'session-token',
-                        value: sessionId,
-                        domain: '.'+process.env.retname+'.com',
-                        path: '/',
-                        secure: true,
-                        sameSite: 'Lax',
-                        expires: timestamp + 86400
                     },
                     {
                         name: 'i18n-prefs',
                         value: 'USD',
-                        domain: '.'+process.env.retname+'.com',
+                        domain: '.${config.domain}',
                         path: '/',
-                        secure: true,
-                        sameSite: 'Lax',
-                        expires: timestamp + 86400
-                    },
-                    {
-                        name: 'ubid-main',
-                        value: deviceId,
-                        domain: '.'+process.env.retname+'.com',
-                        path: '/',
-                        secure: true,
-                        sameSite: 'Lax',
-                        expires: timestamp + 31536000
                     }
                 ],
                 origins: [
                     {
-                        origin: 'https://www.'+process.env.retname+'.com',
+                        origin: 'https://www.${config.domain}',
                         localStorage: [
                             {
                                 name: 'session-token',
-                                value: sessionId
+                                value: Date.now().toString(),
                             },
                             {
-                                name: 'deviceId',
-                                value: deviceId
+                                name: 'csm-hit',
+                                value: Date.now().toString(),
                             }
                         ]
                     }
                 ]
             };
 
-            // Enhanced headers with auth support
-            await context.setExtraHTTPHeaders({
-                'Accept-Language': 'en-US,en;q=0.9',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Connection': 'keep-alive',
-                'Sec-Fetch-Site': 'same-origin',
-                'Sec-Fetch-Mode': 'navigate',
-                'Sec-Fetch-User': '?1',
-                'Sec-Fetch-Dest': 'document'
-            });
+            // Add cookies with error handling
+            try {
+                await context.addCookies(storageState.cookies);
+                console.log('Cookies added successfully');
+            } catch (cookieError) {
+                console.error('Failed to add cookies:', cookieError.message);
+                throw cookieError;
+            }
 
-            // Simple route handler for auth requests
-            await context.route('**/*', async (route) => {
-                const request = route.request();
-                const url = request.url();
-                
-                if (url.includes('oauth') || url.includes('auth') || url.includes('login')) {
-                    await route.continue({
-                        headers: {
-                            ...request.headers(),
-                            'Origin': new URL(url).origin,
-                            'Referer': new URL(url).origin + '/'
-                        }
-                    });
-                } else {
-                    await route.continue();
-                }
-            });
-
-            // Add cookies
-            await context.addCookies(storageState.cookies);
-
-            // Add localStorage items
+            // Add localStorage items with enhanced navigation
             for (const origin of storageState.origins) {
                 let page = null;
                 try {
                     page = await context.newPage();
+                    page.setDefaultNavigationTimeout(60000);
                     
-                    await page.goto(origin.origin, { 
-                        waitUntil: 'domcontentloaded',
-                        timeout: 30000
-                    });
+                    // Wait for network to be idle before proceeding
+                    await page.route('**/*', route => route.continue());
                     
-                    for (const item of origin.localStorage) {
-                        await page.evaluate(([key, value]) => {
-                            try {
-                                localStorage.setItem(key, value);
-                            } catch (e) {
-                                console.warn(`Failed to set localStorage for ${key}:`, e);
-                            }
-                        }, [item.name, item.value]);
+                    // Enhanced navigation with retries
+                    let navigationSuccess = false;
+                    let retryCount = 0;
+                    const maxRetries = 3;
+
+                    while (!navigationSuccess && retryCount < maxRetries) {
+                        try {
+                            
+                            // Perform navigation with both promises
+                            const navigationPromise = page.goto(`https://www.${config.domain}`, {
+                                waitUntil: 'domcontentloaded',
+                                timeout: 60000
+                            });
+
+                            const loadStatePromise = page.waitForLoadState('domcontentloaded', { 
+                                timeout: 60000 
+                            });
+
+                            await Promise.all([
+                                navigationPromise,
+                                loadStatePromise
+                            ]);
+
+                            // Additional wait to ensure page is stable
+                            await page.waitForTimeout(1000);
+
+                            // Verify page is actually ready
+                            await page.evaluate(() => document.readyState).catch(() => 'loading');
+                            
+                            navigationSuccess = true;
+                        } catch (navigationError) {
+                            retryCount++;
+                            console.warn(`Navigation attempt ${retryCount} failed:`, navigationError.message);
+                            
+                            // Close any dialogs that might have appeared
+                            await page.keyboard.press('Escape').catch(() => {});
+                            
+                            if (retryCount === maxRetries) throw navigationError;
+                            await page.waitForTimeout(2000 * retryCount); // Exponential backoff
+                        }
                     }
+
+                    // Set localStorage items with retry
+                    for (const item of origin.localStorage) {
+                        let storageSuccess = false;
+                        retryCount = 0;
+                        
+                        while (!storageSuccess && retryCount < maxRetries) {
+                            try {
+                                await page.evaluate(({key, value}) => {
+                                    localStorage.setItem(key, value);
+                                    return true;
+                                }, { key: item.name, value: item.value });
+                                
+                                storageSuccess = true;
+                                console.log(`LocalStorage item set: ${item.name}`);
+                            } catch (e) {
+                                retryCount++;
+                                console.warn(`Attempt ${retryCount} to set localStorage failed:`, e.message);
+                                await page.waitForTimeout(1000);
+                                if (retryCount === maxRetries) throw e;
+                            }
+                        }
+                    }
+
+                    console.log(`Setup completed for origin: ${origin.origin}`);
                 } catch (error) {
-                    console.error('Error during page setup:', error);
+                    console.error(`Failed to setup origin ${origin.origin}:`, error.message);
+                    throw error;
                 } finally {
                     if (page) {
-                        try {
-                            await page.close();
-                        } catch (e) {
-                            console.warn('Error closing page:', e);
-                        }
+                        await page.close().catch(e => 
+                            console.warn('Failed to close page:', e.message)
+                        );
                     }
                 }
             }
 
-            return {
-                cleanup: async () => {
-                    try {
-                        await context.clearCookies();
-                        const pages = await context.pages();
-                        for (const page of pages) {
-                            await page.evaluate(() => {
-                                try {
-                                    localStorage.clear();
-                                    sessionStorage.clear();
-                                } catch (e) {
-                                    console.warn('Error clearing storage:', e);
-                                }
-                            });
-                        }
-                    } catch (error) {
-                        console.error('Cleanup error:', error);
-                    }
-                }
-            };
+            return context;
         } catch (error) {
-            console.error('Browser setup error:', error);
+            console.error('Browser setup failed:', error.message);
             throw error;
+        }
+    }
+
+    static async cleanup() {
+        try {
+            console.log('Cleanup completed');
+        } catch (error) {
+            console.error('Cleanup failed:', error);
         }
     }
 }
 
-module.exports = initialBrowserSetup;
+export default initialBrowserSetup;

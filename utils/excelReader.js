@@ -61,12 +61,12 @@ export function convertToAiCommand(step) {
                 } else if (value.toLowerCase() === 'down') {
                     return `scroll down until you find the element containing text as "${locator}"`;
                 } else {
-                    return `Scroll to the "${locator}"`;
+                    return `Scroll to the element containing text or text as "${locator}" on page`;
                 }    
             case 'verify':
                 return `Verify that the element containing text as "${locator}" contains '${value}'`;
             case 'waitfortext':
-                return `Wait for any button or element containing "${locator}" to appear as visible`;
+                return `Wait for the text "${locator}" present on the page`;
             case 'findlocator':
                 return `Look for the web element "${locator}" text containing '${value} and click it'`;
             case 'stype':

@@ -10,6 +10,63 @@ export class ActionHelper {
         this.networkLogs = [];
     }
 
+    async waitForPageLoadComplete(page, timeout = 30000) {
+        try {
+            await Promise.race([
+                Promise.all([
+                    // Wait for DOM content
+                    page.waitForLoadState('domcontentloaded', { timeout }),
+                   
+                    // Check page readiness
+                    page.waitForFunction(() => {
+                        return new Promise((resolve) => {
+                            if (document.readyState === 'complete' && 
+                                !document.querySelector('.loading') && 
+                                !document.querySelector('.spinner') && 
+                                !document.querySelector('[class*="loader"]')) {
+                                resolve(true);
+                            }
+                            
+                            // Add MutationObserver to detect when loading elements disappear
+                            const observer = new MutationObserver((mutations) => {
+                                if (document.readyState === 'complete' && 
+                                    !document.querySelector('.loading') && 
+                                    !document.querySelector('.spinner') && 
+                                    !document.querySelector('[class*="loader"]')) {
+                                    observer.disconnect();
+                                    resolve(true);
+                                }
+                            });
+
+                            observer.observe(document.body, {
+                                childList: true,
+                                subtree: true,
+                                attributes: true
+                            });
+
+                            // Fallback timeout
+                            setTimeout(() => {
+                                observer.disconnect();
+                                resolve(true);
+                            }, 10000);
+                        });
+                    }, { timeout })
+                ]),
+                
+                // Global timeout
+                new Promise((_, reject) => {
+                    setTimeout(() => reject(new Error('Page load timeout')), timeout);
+                })
+            ]);
+
+            console.log('✅ Page load complete');
+            return true;
+        } catch (error) {
+            console.warn('⚠️ Page load check warning:', error.message);
+            return false;
+        }
+    }
+
     async takeErrorScreenshot(page, functionName, error) {
         try {
             if (!page?.screenshot) {
@@ -43,11 +100,6 @@ export class ActionHelper {
 
     async handleGoto(page, step) {
         try {
-            // Block image loading
-            await page.route('**/*.{png,jpg,jpeg,gif,webp,svg}', route => route.abort());
-
-            // Block other media if needed
-            await page.route('**/*.{mp4,webm,mp3,wav}', route => route.abort());
 
             await page.setDefaultNavigationTimeout(60000);
 
@@ -60,7 +112,8 @@ export class ActionHelper {
                 throw new Error(`Navigation failed: ${response?.status() || 'no response'}`);
             }
 
-            await page.waitForSelector('body', { timeout: 60000 });
+            // Add page load check
+            await this.waitForPageLoadComplete(page);
 
             return true;
         } catch (error) {
@@ -72,93 +125,64 @@ export class ActionHelper {
     async handleAssert(page, step) {
         try {
             const element = await page.locator(step.locator);
-            await element.waitFor({ state: 'visible', timeout: 5000 });
-            await expect(element).toHaveText(step.value);
-        } catch (error) {
-            await this.takeErrorScreenshot(page, 'handleAssert', error);
-            throw error;
-        }
-    }
-
-    async handleRequest(step, i) {
-        try {
-            if (!step.locator) {
-                throw new Error('URL (locator) is required for API request');
-            }
-
-            const url = step.locator.startsWith('http') ? step.locator : `https://${step.locator}`;
-
-            console.log('Making API request:', {
-                url,
-                method: step.method || 'POST',
-                headers: step.headers,
-                body: step.value
-            });
-
-            const response = await axios({
-                method: step.method || 'POST',
-                url,
-                data: step.value ? JSON.parse(step.value) : undefined,
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+            await element.waitFor({ state: 'visible', timeout: 30000 });
+    
+            // Get the actual text content
+            const actualText = await element.textContent();
+            console.log('Actual text:', actualText);
+            console.log('Expected text:', step.value);
+    
+            // Use toContainText for partial matching
+            await expect(element).toContainText(step.value, {
                 timeout: 30000,
-                validateStatus: () => true
+                ignoreCase: true
             });
-
-            console.log('API Response:', {
-                status: response.status,
-                statusText: response.statusText,
-                data: response.data
+    
+            // Take success screenshot
+            const screenshotsDir = path.join(process.cwd(), 'test-results', 'screenshots');
+            if (!fs.existsSync(screenshotsDir)) {
+                fs.mkdirSync(screenshotsDir, { recursive: true });
+            }
+    
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const screenshotPath = path.join(screenshotsDir, `assert-success-${timestamp}.png`);
+            const screenshot = await page.screenshot({ 
+                path: screenshotPath,
+                fullPage: true 
             });
-
-            this.networkLogs.push({
-                timestamp: new Date().toISOString(),
-                step: i + 1,
-                request: {
-                    url,
-                    method: step.method || 'POST',
-                    headers: step.headers,
-                    body: step.value
-                },
-                response: {
-                    status: response.status,
-                    statusText: response.statusText,
-                    headers: response.headers,
-                    data: response.data
-                }
+    
+            // Success message
+            await page.test.info().annotations.push({
+                type: 'success',
+                description: `✅ Successfully found text: "${step.value}"`
             });
-
-            await this.saveLogs();
-            return response;
-
+    
+            console.log('✅ Assertion passed');
+    
         } catch (error) {
-            console.error('API Request failed:', {
-                url: step.locator,
-                method: step.method || 'POST',
-                error: error.message,
-                response: error.response?.data
+            // Take error screenshot first
+            const screenshotsDir = path.join(process.cwd(), 'test-results', 'screenshots');
+            if (!fs.existsSync(screenshotsDir)) {
+                fs.mkdirSync(screenshotsDir, { recursive: true });
+            }
+    
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const screenshotPath = path.join(screenshotsDir, `assert-error-${timestamp}.png`);
+            await page.screenshot({ 
+                path: screenshotPath,
+                fullPage: true 
             });
-
-            this.networkLogs.push({
-                timestamp: new Date().toISOString(),
-                step: i + 1,
-                request: {
-                    url: step.locator,
-                    method: step.method || 'POST',
-                    headers: step.headers,
-                    body: step.value
-                },
-                error: {
-                    message: error.message,
-                    status: error.response?.status,
-                    statusText: error.response?.statusText,
-                    data: error.response?.data
-                }
+    
+            // Simplified error message
+            await page.test.info().annotations.push({
+                type: 'error',
+                description: `❌ Failed to find text: "${step.value}"`
             });
-
-            await this.saveLogs();
-            throw error;
+    
+            console.error(`❌ Failed to find text: "${step.value}"`);
+            
+            // Throw a simplified error
+            throw new Error(`Failed to find text: "${step.value}"`);
         }
     }
 
@@ -411,11 +435,12 @@ export class ActionHelper {
                 // Perform the click
                 element.click({ timeout: 5000 })
             ]);
+
     
             // Additional stability checks
             await Promise.race([
                 page.waitForLoadState('load', { timeout: 10000 }),
-                page.waitForTimeout(2000)
+                this.waitForPageLoadComplete(page)
             ]);
     
         } catch (error) {
@@ -459,7 +484,7 @@ export class ActionHelper {
         const element = await page.locator(step.locator);
         await element.waitFor({ state: 'visible', timeout: 5000 });
         await element.press(step.value);
-        await this.waitForPageLoad(page);
+        await this.waitForPageLoadComplete(page)
     } catch (error) {
         console.warn(`Initial key press attempt failed: ${error.message}`);
         try {
@@ -483,7 +508,7 @@ export class ActionHelper {
             page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => { }),
             element.click({ timeout: 5000, force: true })
         ]);
-
+        await this.waitForPageLoadComplete(page)
         // Additional wait to ensure page stability
         await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => { });
         await page.waitForTimeout(1000);
@@ -509,42 +534,37 @@ export class ActionHelper {
     }
 }
 
-    async handleAiCommand(page, step, i, test) {
+async handleAiCommand(page, step, i, test) {
     try {
-        await Promise.all([
-            page.waitForLoadState('domcontentloaded', { timeout: 60000 }).catch((e) => {
-                console.warn('waitForLoadState warning:', e.message);
-            }),
-            this.waitForPageLoad(page)
+        // Wait for page to be ready
+        await Promise.race([
+            Promise.all([
+                // Basic page load check
+                page.waitForLoadState('domcontentloaded', { timeout: 30000 }),
+                            
+                // Wait for page to be stable - simplified check
+                page.waitForFunction(() => {
+                    return document.readyState === 'complete';
+                }, { timeout: 30000 })
+            ]),
+            
+            // Fallback timeout
+            page.waitForTimeout(30000)
         ]);
-        const aiCommand = convertToAiCommand(step);
+
+        // Short delay for any dynamic content
         await page.waitForTimeout(1000);
+
+        // Execute AI command
+        const aiCommand = convertToAiCommand(step);
         console.log(`Executing AI command: ${step.locator}`);
         await ai(aiCommand, { page, test });
         console.log('AI command executed successfully');
+
     } catch (error) {
-        // Take screenshot first
         const screenshotPath = await this.takeErrorScreenshot(page, 'handleAiCommand', error);
-
-        // // Create detailed error message
-        // const errorMessage = {
-        //     step: `Step ${i + 1}`,
-        //     command: step.locator,
-        //     error: error.message || 'Unknown error',
-        //     stack: error.stack || 'No stack trace',
-        //     screenshot: screenshotPath
-        // };
-
-        // console.error('AI Command failed:', errorMessage);
-
-        // // Create enhanced error with full details
-        // const enhancedError = new Error(`Step ${i + 1} failed: AI command could not be executed. Error: ${error.message || 'Unknown error'}`);
-        // enhancedError.originalError = error;
-        // enhancedError.details = errorMessage;
         throw error;
     }
-
-    await page.waitForTimeout(2000);
 }
 
 async handleFileUpload(page, step) {

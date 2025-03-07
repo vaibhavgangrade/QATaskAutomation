@@ -5,32 +5,69 @@ const path = require('path');
 const config = {
   testDir: './tests',
   retries: 0,
-  workers: process.env.CI ? 1 : undefined, // Use max workers locally, 1 in CI
-  fullyParallel: true,  // Enable parallel execution
+  workers: 1, // Ensures single worker
+  fullyParallel: false, // Prevents parallel execution
   
-  /* Maximum time one test can run for. */
   timeout: 3 * 60 * 1000,
   expect: {
     timeout: 5000
   },
   
   reporter: [
-    ['html', { open: 'always' }]  // 'always' will open report after each test run
-  ],
+    ['html'],
+    ['allure-playwright', {
+      detail: true,
+      outputFolder: 'allure-results',
+      suiteTitle: true,
+      environmentInfo: {
+        Framework: 'Playwright',
+        Platform: process.platform,
+        Browser: 'Chromium',
+        Node: process.version,
+        Environment: process.env.ENV || 'QA'
+      },
+      categories: [
+        {
+          name: 'Failed tests',
+          messageRegex: '.*',
+          matchedStatuses: ['failed']
+        },
+        {
+          name: 'Broken tests',
+          traceRegex: '.*',
+          matchedStatuses: ['broken']
+        },
+        {
+          name: 'Ignored tests',
+          matchedStatuses: ['skipped']
+        },
+        {
+          name: 'Successful tests',
+          matchedStatuses: ['passed']
+        }
+      ],
+      labels: [
+        { name: 'epic', value: 'E2E Testing' },
+        { name: 'feature', value: 'Retailer Automation' }
+      ]
+    }]
+],
 
-  /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
     browserName: 'chromium',
     headless: false,
     screenshot: 'on',
-    trace: 'on', //off,on
+    trace: 'on',
+    video: 'on',
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
     viewport: { width: 1480, height: 1050 },
     deviceScaleFactor: 1,
     hasTouch: false,
     isMobile: false,
     
-    // Additional launch arguments
+    // Add this to reuse browser instance
+    reuseExistingBrowser: true,
+    
     launchOptions: {
         args: [
             '--disable-blink-features=AutomationControlled',

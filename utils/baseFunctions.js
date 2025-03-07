@@ -1,7 +1,7 @@
 async function findElementByText(page, text) {
     try {
-        console.log(`Looking for element with text: "${text}"`);
-        
+        console.log('Looking for element with text:', text);
+
         // Common text-based selectors in order of preference
         const selectors = [
             // Exact matches
@@ -9,13 +9,13 @@ async function findElementByText(page, text) {
             `[aria-label="${text}"]`,
             `[placeholder="${text}"]`,
             `[title="${text}"]`,
-            
+
             // Contains matches
             `text=${text}`,
             `[aria-label*="${text}"]`,
             `[placeholder*="${text}"]`,
             `[title*="${text}"]`,
-            
+
             // Common elements with text
             `button:has-text("${text}")`,
             `input:has-text("${text}")`,
@@ -30,19 +30,16 @@ async function findElementByText(page, text) {
             `h4:has-text("${text}")`,
             `input:has(span:text("${text}"))`,
             `span:has(input:has(span:text("${text}")))`,
-            // Fallback to any element containing the text
             `*:has-text("${text}")`
         ];
 
-        // Try each selector
         for (const selector of selectors) {
             try {
                 const element = page.locator(selector);
                 const isVisible = await element.isVisible({ timeout: 2000 }).catch(() => false);
-                // const count = await element.count();
-                
+
                 if (isVisible) {
-                    console.log(`Found element using selector: ${selector}`);
+                    console.log('Found element using selector:', selector);
                     return element.first();
                 }
             } catch (error) {
@@ -50,21 +47,19 @@ async function findElementByText(page, text) {
             }
         }
 
-        // If no exact matches found, try case-insensitive and partial matches
+        // Fuzzy matching
         const fuzzySelectors = [
-            `text=${text}i`,  // case-insensitive
-            `*:has-text("${text}", "i")`,  // case-insensitive
-            // Add more fuzzy matching strategies if needed
+            `text=${text}i`,
+            `*:has-text("${text}", "i")`
         ];
 
         for (const selector of fuzzySelectors) {
             try {
                 const element = page.locator(selector);
                 const isVisible = await element.isVisible({ timeout: 1000 }).catch(() => false);
-                // const count = await element.count();
-                
+
                 if (isVisible) {
-                    console.log(`Found element using fuzzy selector: ${selector}`);
+                    console.log('Found element using fuzzy selector:', selector);
                     return element.first();
                 }
             } catch (error) {
@@ -72,18 +67,33 @@ async function findElementByText(page, text) {
             }
         }
 
-        throw new Error(`Could not find any element containing text: ${text}`);
+        throw new Error(`Could not find element containing text: ${text}`);
     } catch (error) {
-        console.error(`Error finding element with text "${text}":`, error);
+        console.error('Error finding element:', error.message);
         throw error;
     }
 }
 
-// Example usage in your test:
-// const element = await findElementByText(page, "Login");
-// await element.click();
+async function getListValues(page, locator) {
+    try {
+        const element = page.locator(locator);
+        await expect(element).toBeVisible({ timeout: 5000 });
+        
+        // Get text content and split by newline
+        const text = await element.textContent();
+        const values = text.split('\n')
+                          .map(item => item.trim())
+                          .filter(item => item !== '');
+        
+        console.log(`Found ${values.length} items:`, values);
+        return values;
+    } catch (error) {
+        console.error('Error getting list values:', error.message);
+        throw error;
+    }
+}
 
 module.exports = {
-    findElementByText
+    findElementByText,
+    getListValues
 };
-

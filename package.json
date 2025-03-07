@@ -3,7 +3,11 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "playwright test"
+    "clean": "rimraf test-results allure-results playwright-report",
+    "allure:generate": "allure generate ./allure-results -o ./allure-report --clean",
+    "allure:open": "allure open ./allure-report",
+    "test:amazon": "cross-env RETAILER=amazon npm run clean && cross-env RETAILER=amazon npx playwright test tests/interactions/interactions.spec.js --reporter=allure-playwright,html --config=playwright.config.js && npm run allure:generate && npm run allure:open",
+    "test:bluenile": "cross-env RETAILER=bluenile npm run clean && cross-env RETAILER=bluenile npx playwright test tests/interactions/interactions.spec.js --reporter=allure-playwright,html && npm run allure:generate -- --clean -o allure-report && npm run allure:open"
   },
   "keywords": [],
   "author": "",
@@ -14,7 +18,11 @@
     "@playwright/test": "^1.49.1",
     "@types/node": "^22.10.5",
     "@zerostep/playwright": "^0.1.5",
+    "allure-commandline": "^2.33.0",
+    "allure-playwright": "^3.2.0",
+    "cross-env": "^7.0.3",
     "dotenv": "^16.4.7",
+    "rimraf": "^5.0.10",
     "xlsx": "^0.18.5"
   },
   "dependencies": {
