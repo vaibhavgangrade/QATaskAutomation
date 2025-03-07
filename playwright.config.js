@@ -14,17 +14,21 @@ const config = {
   },
   
   reporter: [
-    ['html'],
+    ['html', {
+      open: 'always'  //open HTML report automatically
+    }],
     ['allure-playwright', {
       detail: true,
       outputFolder: 'allure-results',
       suiteTitle: true,
       environmentInfo: {
         Framework: 'Playwright',
-        Platform: process.platform,
-        Browser: 'Chromium',
-        Node: process.version,
-        Environment: process.env.ENV || 'QA'
+        Platform: process.platform,  // From Node.js - shows OS platform
+        Browser: process.env.BROWSER || 'Chromium',
+        Node: process.version,      // From Node.js - shows Node version
+        Environment: process.env.ENV || 'QA',
+        Retailer: process.env.RETAILER, // From your .env file
+        ExcelDir: process.env.EXCEL_DIR // From your .env file
       },
       categories: [
         {

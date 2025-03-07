@@ -148,13 +148,37 @@ class initialBrowserSetup {
         }
     }
 
-    static async cleanup() {
+    static async cleanup(page, context) {
         try {
-            console.log('Cleanup completed');
+            console.log('Starting cleanup process...');
+            
+            // Cleanup page
+            if (page && !page.isClosed()) {
+                try {
+                    await page.waitForTimeout(1000); // Small delay to ensure operations are complete
+                    await page.close().catch(e => console.warn('Error closing page:', e));
+                    console.log('Page closed successfully');
+                } catch (pageError) {
+                    console.warn('Error during page cleanup:', pageError);
+                }
+            }
+
+            // Cleanup context
+            if (context) {
+                try {
+                    await context.clearCookies();
+                    console.log('Cookies cleared');
+                } catch (contextError) {
+                    console.warn('Error clearing cookies:', contextError);
+                }
+            }
+
+            console.log('Cleanup completed successfully');
         } catch (error) {
             console.error('Cleanup failed:', error);
         }
     }
+
 }
 
 export default initialBrowserSetup;

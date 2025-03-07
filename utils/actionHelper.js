@@ -535,35 +535,92 @@ export class ActionHelper {
 }
 
 async handleAiCommand(page, step, i, test) {
+    const stepStartTime = new Date().toISOString();
     try {
-        // Wait for page to be ready
-        await Promise.race([
-            Promise.all([
-                // Basic page load check
-                page.waitForLoadState('domcontentloaded', { timeout: 30000 }),
-                            
-                // Wait for page to be stable - simplified check
-                page.waitForFunction(() => {
-                    return document.readyState === 'complete';
-                }, { timeout: 30000 })
-            ]),
-            
-            // Fallback timeout
-            page.waitForTimeout(30000)
-        ]);
-
-        // Short delay for any dynamic content
-        await page.waitForTimeout(1000);
+        // Add step start annotation
+        await test.info().annotations.push({
+            type: 'step',
+            name: `Step ${i + 1}: ${step.action}`,
+            description: step.description || 'AI Command Execution',
+            status: 'running',
+            startTime: stepStartTime
+        });
 
         // Execute AI command
         const aiCommand = convertToAiCommand(step);
-        console.log(`Executing AI command: ${step.locator}`);
+        console.log(`Executing Step ${i + 1}: ${step.action}`);
+        console.log(`Description: ${step.description || 'N/A'}`);
+        console.log(`Locator: ${step.locator}`);
+        
+        // Handle waitBefore if specified
+        if (step.waitBefore) {
+            try {
+                await page.waitForTimeout(parseInt(step.waitBefore));
+            } catch (waitError) {
+                // Ignore timeout errors if page is closed
+                if (!waitError.message.includes('Target page, context or browser has been closed')) {
+                    throw waitError;
+                }
+            }
+        }
+
         await ai(aiCommand, { page, test });
-        console.log('AI command executed successfully');
+
+        // Handle waitAfter if specified
+        if (step.waitAfter) {
+            try {
+                await page.waitForTimeout(parseInt(step.waitAfter));
+            } catch (waitError) {
+                // Ignore timeout errors if page is closed
+                if (!waitError.message.includes('Target page, context or browser has been closed')) {
+                    throw waitError;
+                }
+            }
+        }
+
+        // Take success screenshot if page is still valid
+        if (!page.isClosed()) {
+            const screenshot = await page.screenshot();
+            await test.info().attachments.push({
+                name: `Step ${i + 1} - ${step.action}`,
+                contentType: 'image/png',
+                body: screenshot,
+                description: `Successfully executed: ${step.description || step.action}`
+            });
+        }
+
+        // Add success annotation
+        await test.info().annotations.push({
+            type: 'step',
+            name: `Step ${i + 1}: ${step.action}`,
+            status: 'passed',
+            startTime: stepStartTime,
+            endTime: new Date().toISOString()
+        });
 
     } catch (error) {
-        const screenshotPath = await this.takeErrorScreenshot(page, 'handleAiCommand', error);
-        throw error;
+        // Only throw error if it's not a page closure during timeout
+        if (!error.message.includes('Target page, context or browser has been closed')) {
+            if (!page.isClosed()) {
+                const errorScreenshot = await page.screenshot();
+                await test.info().attachments.push({
+                    name: `Error - Step ${i + 1}`,
+                    contentType: 'image/png',
+                    body: errorScreenshot,
+                    description: `Failed: ${step.action}`
+                });
+            }
+
+            await test.info().annotations.push({
+                type: 'issue',
+                description: `Step ${i + 1} Error: ${error.message}`,
+                severity: 'critical',
+                status: 'failed',
+                startTime: stepStartTime,
+                endTime: new Date().toISOString()
+            });
+            throw error;
+        }
     }
 }
 

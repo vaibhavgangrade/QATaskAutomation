@@ -22,10 +22,10 @@ test.describe('Test Automation', () => {
     let testSteps;
     let actionHelper;
     let browserSetup;
+    let currentPage;
 
     test.beforeAll(async () => {
         try {
-            // Add detailed environment information
             await test.info().annotations.push({
                 type: 'allure',
                 description: `E2E Test Suite for ${config.domain}`,
@@ -49,21 +49,16 @@ test.describe('Test Automation', () => {
             const excelPath = path.join(process.cwd(), process.env.EXCEL_DIR, config.excelFile);
 
             if (!fs.existsSync(excelPath)) {
-                console.error(`Excel file not found at: ${excelPath}`);
                 throw new Error(`Excel file not found at: ${excelPath}`);
             }
 
-            console.log(`Reading Excel file from: ${excelPath}`);
             testSteps = readExcelFile(excelPath);
             console.log(`Successfully loaded ${testSteps.length} steps from Excel`);
 
-            if (testSteps.length > 0) {
-                console.log('Sample step:', testSteps[0]);
-                await test.info().annotations.push({
-                    type: 'testPlan',
-                    description: `Total steps to execute: ${testSteps.length}`
-                });
-            }
+            await test.info().annotations.push({
+                type: 'testPlan',
+                description: `Total steps to execute: ${testSteps.length}`
+            });
         } catch (error) {
             console.error('Error in beforeAll:', error);
             await test.info().annotations.push({
@@ -76,6 +71,7 @@ test.describe('Test Automation', () => {
     });
 
     test.beforeEach(async ({ page }) => {
+        currentPage = page;
         actionHelper = new ActionHelper(page);
     });
 
@@ -84,7 +80,6 @@ test.describe('Test Automation', () => {
             page.test = test;
             const testStartTime = new Date().toISOString();
             
-            // Enhanced test metadata
             await test.info().annotations.push({
                 type: 'allure',
                 description: `Running E2E test for ${config.domain}`,
@@ -102,7 +97,7 @@ test.describe('Test Automation', () => {
             page.setDefaultTimeout(60000);
             page.setDefaultNavigationTimeout(60000);
 
-            // Initial navigation with enhanced reporting
+            // Initial navigation
             await test.step(`Navigate to ${config.domain}`, async () => {
                 const stepStart = new Date().toISOString();
                 try {
@@ -111,13 +106,15 @@ test.describe('Test Automation', () => {
                         timeout: 2*60000
                     });
                     
-                    const screenshot = await page.screenshot();
-                    await test.info().attachments.push({
-                        name: 'Initial Navigation',
-                        contentType: 'image/png',
-                        body: screenshot,
-                        description: `Successfully navigated to ${config.domain}`
-                    });
+                    if (!page.isClosed()) {
+                        const screenshot = await page.screenshot();
+                        await test.info().attachments.push({
+                            name: 'Initial Navigation',
+                            contentType: 'image/png',
+                            body: screenshot,
+                            description: `Successfully navigated to ${config.domain}`
+                        });
+                    }
 
                     await test.info().annotations.push({
                         type: 'step',
@@ -138,7 +135,14 @@ test.describe('Test Automation', () => {
                 }
             });
 
+            // Execute test steps
             for (let i = 0; i < testSteps.length; i++) {
+                if (page.isClosed()) {
+                    page = await context.newPage();
+                    currentPage = page;
+                    actionHelper = new ActionHelper(page);
+                }
+
                 const stepStartTime = new Date().toISOString();
                 const maxStepTime = 60000;
                 const step = testSteps[i];
@@ -147,8 +151,22 @@ test.describe('Test Automation', () => {
                     try {
                         const stepPromise = (async () => {
                             if (step.waitBefore) {
-                                await page.waitForTimeout(parseInt(step.waitBefore));
-                            }
+                                try {
+                                    // First ensure page is ready
+                                    await Promise.race([
+                                        page.waitForLoadState('domcontentloaded', { timeout: 30000 }),
+                                    ]).catch(e => console.warn('Load state warning:', e.message));
+                            
+                                    // Then apply the specified wait
+                                    if (!page.isClosed()) {
+                                        await page.waitForTimeout(parseInt(step.waitBefore));
+                                    }
+                                } catch (waitError) {
+                                    // Only log warning if it's not a page closure error
+                                    if (!waitError.message.includes('Target page, context or browser has been closed')) {
+                                        console.warn(`Wait before warning for step ${i + 1}:`, waitError.message);
+                                    }
+                                }                            }
                             
                             switch (step.action.toLowerCase()) {
                                 case 'goto':
@@ -188,17 +206,32 @@ test.describe('Test Automation', () => {
                             }
 
                             if (step.waitAfter) {
-                                await page.waitForTimeout(parseInt(step.waitAfter));
-                            }
+                                try {
+                                    // First ensure page is ready
+                                    await Promise.race([
+                                        page.waitForLoadState('domcontentloaded', { timeout: 30000 }),
+                                    ]).catch(e => console.warn('Load state warning:', e.message));
+                            
+                                    // Then apply the specified wait
+                                    if (!page.isClosed()) {
+                                        await page.waitForTimeout(parseInt(step.waitAfter));
+                                    }
+                                } catch (waitError) {
+                                    // Only log warning if it's not a page closure error
+                                    if (!waitError.message.includes('Target page, context or browser has been closed')) {
+                                        console.warn(`Wait before warning for step ${i + 1}:`, waitError.message);
+                                    }
+                                }                           }
 
-                            // Enhanced step reporting
-                            const screenshot = await page.screenshot();
-                            await test.info().attachments.push({
-                                name: `Step ${i + 1} - ${step.action}`,
-                                contentType: 'image/png',
-                                body: screenshot,
-                                description: `Completed: ${step.action} ${step.description || ''}`
-                            });
+                            if (!page.isClosed()) {
+                                const screenshot = await page.screenshot();
+                                await test.info().attachments.push({
+                                    name: `Step ${i + 1} - ${step.action}`,
+                                    contentType: 'image/png',
+                                    body: screenshot,
+                                    description: `Completed: ${step.action} ${step.description || ''}`
+                                });
+                            }
 
                             await test.info().annotations.push({
                                 type: 'step',
@@ -224,14 +257,16 @@ test.describe('Test Automation', () => {
                         ]);
 
                     } catch (stepError) {
-                        await handleStepError(page, i, stepStartTime, stepError);
-                        const errorScreenshot = await page.screenshot();
-                        await test.info().attachments.push({
-                            name: `Error - Step ${i + 1}`,
-                            contentType: 'image/png',
-                            body: errorScreenshot,
-                            description: `Error in step: ${step.action}`
-                        });
+                        if (!page.isClosed()) {
+                            await handleStepError(page, i, stepStartTime, stepError);
+                            const errorScreenshot = await page.screenshot();
+                            await test.info().attachments.push({
+                                name: `Error - Step ${i + 1}`,
+                                contentType: 'image/png',
+                                body: errorScreenshot,
+                                description: `Error in step: ${step.action}`
+                            });
+                        }
                         
                         await test.info().annotations.push({
                             type: 'issue',
@@ -251,7 +286,6 @@ test.describe('Test Automation', () => {
                 });
             }
 
-            // Add test completion annotation
             await test.info().annotations.push({
                 type: 'allure',
                 description: `Test completed successfully for ${config.domain}`,
@@ -271,18 +305,20 @@ test.describe('Test Automation', () => {
                     {
                         name: 'Final Error Screenshot',
                         contentType: 'image/png',
-                        body: await page.screenshot()
+                        body: !page.isClosed() ? await page.screenshot() : Buffer.from(''),
                     },
                     {
                         name: 'Error Details',
                         contentType: 'text/plain',
-                        body: Buffer.from(error.stack || error.message)
+                        body: Buffer.from(error.message || 'Unknown error')
                     }
                 ]
             });
             throw error;
         } finally {
-            await cleanup(page, context);
+            if (!page.isClosed()) {
+                await cleanup(page, context);
+            }
         }
     });
 

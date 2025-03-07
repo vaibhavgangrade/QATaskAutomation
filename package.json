@@ -7,7 +7,8 @@
     "allure:generate": "allure generate ./allure-results -o ./allure-report --clean",
     "allure:open": "allure open ./allure-report",
     "test:amazon": "cross-env RETAILER=amazon npm run clean && cross-env RETAILER=amazon npx playwright test tests/interactions/interactions.spec.js --reporter=allure-playwright,html --config=playwright.config.js && npm run allure:generate && npm run allure:open",
-    "test:bluenile": "cross-env RETAILER=bluenile npm run clean && cross-env RETAILER=bluenile npx playwright test tests/interactions/interactions.spec.js --reporter=allure-playwright,html && npm run allure:generate -- --clean -o allure-report && npm run allure:open"
+    "test:bluenile": "cross-env RETAILER=bluenile npm run clean && cross-env RETAILER=bluenile npx playwright test tests/interactions/interactions.spec.js --reporter=allure-playwright,html && npm run allure:generate -- --clean -o allure-report && npm run allure:open",
+    "test:walmart": "cross-env RETAILER=walmart npm run clean && cross-env RETAILER=walmart npx playwright test tests/interactions/interactions.spec.js --reporter=allure-playwright,html && npm run allure:generate -- --clean -o allure-report && npm run allure:open"
   },
   "keywords": [],
   "author": "",
