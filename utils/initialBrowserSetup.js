@@ -60,8 +60,8 @@ class initialBrowserSetup {
                     page = await context.newPage();
                     page.setDefaultNavigationTimeout(60000);
                     
-                    // Wait for network to be idle before proceeding
-                    await page.route('**/*', route => route.continue());
+                    // // Wait for network to be idle before proceeding
+                    // await page.route('**/*', route => route.continue());
                     
                     // Enhanced navigation with retries
                     let navigationSuccess = false;
