@@ -2,17 +2,22 @@ export const retailerConfig = {
     amazon: {
         domain: 'amazon.com',
         excelFile: 'amazonSteps.xlsx',
-        apiFile: 'amazon-network-logs.json'
+        jsfile: 'amazon.js'
     },
     bluenile: {
         domain: 'bluenile.com',
         excelFile: 'bluenile.xlsx',
-        apiFile: 'blunile-network-logs.json'
+        jsfile: 'bluenile.js'
     },
     walmart: {
         domain: 'walmart.com',
         excelFile: 'walmart.xlsx',
-        apiFile: 'walmart-network-logs.json'
+        jsfile: 'walmart.js'
+    },
+    costco: {
+        domain: 'costco.com',
+        excelFile: 'costco.xlsx',
+        jsfile: 'costco.js'
     }
     
 };

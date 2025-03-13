@@ -1,6 +1,7 @@
-const { defineConfig } = require('@playwright/test');
+// @ts-check
+const { defineConfig, devices } = require('@playwright/test');
 
-const config = {
+module.exports = defineConfig({
     testDir: './tests',
     retries: 0,
     workers: 1,
@@ -38,27 +39,59 @@ const config = {
         viewport: { width: 1480, height: 1050 },
         actionTimeout: 30000,
         navigationTimeout: 30000,
-        reuseExistingBrowser: true,
+        
+        // Context options
+        contextOptions: {
+            acceptDownloads: true,
+            bypassCSP: true
+        },
 
+        // Launch options
         launchOptions: {
             args: [
-                '--disable-blink-features=AutomationControlled',
-                '--disable-features=IsolateOrigins',
+                '--disable-web-security',
+                '--disable-features=IsolateOrigins,site-per-process',
                 '--disable-site-isolation-trials',
-                '--disable-gpu',
-                '--disable-gpu-vsync',
-                '--disable-frame-rate-limit',
-                '--disable-gpu-compositing',
+                '--disable-blink-features=AutomationControlled',
+                '--enable-features=NetworkService,NetworkServiceInProcess',
+                '--allow-running-insecure-content',
+                '--disable-notifications',
                 '--no-sandbox',
                 '--disable-setuid-sandbox'
             ]
-        }
+        },
+
+        // Storage state for cookies
+        storageState: {
+          cookies: [
+              {
+                  name: 'cookieConsent',
+                  value: 'true',
+                  domain: '.costco.com',
+                  path: '/',
+                  expires: Math.floor(Date.now() / 1000) + 3600, // Current time in seconds + 1 hour
+                  httpOnly: true,
+                  secure: true,
+                  sameSite: 'Lax'
+              }
+          ],
+          origins: []
+      }
     },
 
-    serviceWorkers: 'block',
-    acceptDownloads: true,
-    ignoreHTTPSErrors: true,
-    bypassCSP: true
-};
+    // Project-wide settings
+    projects: [
+        {
+            name: 'Chromium',
+            use: {
+                ...devices['Desktop Chrome']
+            }
+        }
+    ],
 
-module.exports = config;
+    // Additional configurations
+    preserveOutput: 'always',
+    reportSlowTests: { max: 5, threshold: 30000 },
+    quiet: false,
+    maxFailures: 5
+});
