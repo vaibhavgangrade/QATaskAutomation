@@ -27,11 +27,33 @@ const testCases = (() => {
 test.describe('Test Automation Suite', () => {
     test.setTimeout(300000);
 
+    // Add test execution statistics
+    const executionStats = {
+        totalSteps: 0,
+        playwrightSteps: 0,
+        zerostepSteps: 0,
+        failedSteps: 0
+    };
+
+    test.afterAll(async () => {
+        // Log final execution statistics
+        test.info().annotations.push({
+            type: 'Execution Statistics',
+            description: `
+                Total Steps: ${executionStats.totalSteps}
+                Playwright Steps: ${executionStats.playwrightSteps}
+                Zerostep Steps: ${executionStats.zerostepSteps}
+                Failed Steps: ${executionStats.failedSteps}
+            `
+        });
+    });
+
+
     // Create a test for each test case
     Object.entries(testCases).forEach(([testId, steps]) => {
         test(`Test Case: ${testId}`, async ({ page }) => {
             const actionHelper = new ActionHelper(page);
-            
+
             try {
                 await page.goto(`https://www.${config.domain}`, {
                     waitUntil: 'domcontentloaded',
@@ -57,8 +79,19 @@ test.describe('Test Automation Suite', () => {
                             case 'clickto':
                                 await actionHelper.handleClickTo(page, step);
                                 break;
-                            case 'filldata':
-                                await actionHelper.handleFillData(page, step);
+                            case 'elementinputdata':
+                                try {
+                                    await actionHelper.handleInputData(page, step, test);
+                                    executionStats.playwrightSteps++;
+                                } catch (error) {
+                                    // If handleInputData used Zerostep as fallback successfully
+                                    if (error.message?.includes('Zerostep fallback')) {
+                                        executionStats.zerostepSteps++;
+                                    } else {
+                                        executionStats.failedSteps++;
+                                        throw error;
+                                    }
+                                }
                                 break;
                             case 'presskey':
                                 await actionHelper.handlePressKey(page, step);
@@ -69,9 +102,25 @@ test.describe('Test Automation Suite', () => {
                             case 'checkvisible':
                                 await actionHelper.handleCheckVisible(page, step);
                                 break;
-                            default:
-                                await actionHelper.handleAiCommand(page, step, steps.indexOf(step), test);
+                            case 'elementclick':
+                                try {
+                                    await actionHelper.handleTextBasedClick(page, step, test);
+                                    executionStats.playwrightSteps++;
+                                } catch (error) {
+                                    // If handleTextBasedClick used Zerostep as fallback successfully
+                                    if (error.message?.includes('Zerostep fallback')) {
+                                        executionStats.zerostepSteps++;
+                                    } else {
+                                        executionStats.failedSteps++;
+                                        throw error;
+                                    }
+                                }
                                 break;
+                            default:
+                                await actionHelper.handleAiCommand(page, step, test);
+                                executionStats.zerostepSteps++;
+                                break;
+
                         }
 
                         if (step.waitAfter) {
@@ -85,6 +134,7 @@ test.describe('Test Automation Suite', () => {
                 }
             } catch (error) {
                 console.error(`Test Case ${testId} failed:`, error);
+                executionStats.failedSteps++;
                 await page.screenshot({
                     path: `./screenshots/${testId}_error.png`
                 });

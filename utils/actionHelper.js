@@ -3,6 +3,7 @@ import { ai } from '@zerostep/playwright';
 import { convertToAiCommand } from './excelReader.js';
 import { locatorManager } from './locatorManager.js';
 import axios from 'axios';
+import { handleElementAction } from './baseFunctions.js';
 import path from 'path';
 
 //Add these helper functions at the top of the file
@@ -44,7 +45,7 @@ export class ActionHelper {
                 if (step.locator.startsWith('#')) {
                     const [parserName, keyName] = step.locator.substring(1).split(',').map(s => s.trim());
                     const elementLocator = await locatorManager.getLocator(parserName, keyName);
-                    
+
                     if (!elementLocator) {
                         throw new Error(`No locator found for key: ${keyName} in parser: ${parserName}`);
                     }
@@ -272,33 +273,216 @@ export class ActionHelper {
         });
     }
 
-    async handleAiCommand(page, step, i, test) {
+    async handleAiCommand(page, step, test) {
         return await test.step(`AI Command: ${step.action}`, async () => {
             try {
                 const aiCommand = convertToAiCommand(step);
-                
-                test.info().attachments.push({
-                    name: 'AI Command Details',
-                    contentType: 'application/json',
-                    body: Buffer.from(JSON.stringify({
-                        command: aiCommand,
-                        step: step
-                    }, null, 2))
+
+                test.info().annotations.push({
+                    type: 'Execution Method',
+                    description: '🤖 Executing via Zerostep AI'
                 });
 
                 await ai(aiCommand, { page, test });
 
-                const screenshot = await page.screenshot();
+                test.info().annotations.push({
+                    type: 'Execution Success',
+                    description: '✅ Successfully executed via Zerostep'
+                });
+
                 test.info().attachments.push({
-                    name: 'After AI Command',
-                    contentType: 'image/png',
-                    body: screenshot
+                    name: 'Zerostep Execution Details',
+                    contentType: 'application/json',
+                    body: Buffer.from(JSON.stringify({
+                        executionMethod: 'Zerostep',
+                        command: aiCommand,
+                        timestamp: new Date().toISOString()
+                    }, null, 2))
+                });
+
+            } catch (error) {
+                test.info().annotations.push({
+                    type: 'Execution Failed',
+                    description: '❌ Zerostep execution failed'
+                });
+                throw error;
+            }
+        });
+    }
+
+    async handleTextBasedClick(page, step, test) {
+        return await test.step(`Click operation on: "${step.locator}"`, async () => {
+            const startTime = Date.now();
+    
+            try {
+                // First try Playwright
+                await test.step(`🎭 Playwright Attempt`, async () => {
+                    const element = await handleElementAction(page, step, step.locatorType, test);
+    
+                    if (element) {
+                        try {
+                            await element.click();
+                            
+                            test.info().attachments.push({
+                                name: 'Playwright Execution Details',
+                                contentType: 'application/json',
+                                body: Buffer.from(JSON.stringify({
+                                    executionMethod: 'Playwright',
+                                    action: 'ElementClick',
+                                    locator: step.locator,
+                                    locatorType: step.locatorType,
+                                    elementFound: true,
+                                    actionPerformed: 'click',
+                                    timestamp: new Date().toISOString(),
+                                    duration: `${Date.now() - startTime}ms`
+                                }, null, 2))
+                            });
+    
+                            test.info().annotations.push({
+                                type: 'Execution Method',
+                                description: '✅ Executed via Playwright: ElementClick'
+                            });
+                            return; // Exit if successful
+                        } catch (clickError) {
+                            console.log(`Playwright click failed: ${clickError.message}`);
+                            // Continue to Zerostep
+                        }
+                    } else {
+                        console.log(`No element found with Playwright for: ${step.locator}`);
+                    }
+                });
+    
+                // If Playwright failed, try Zerostep
+                await test.step(`🤖 Zerostep Attempt`, async () => {
+                    try {
+                        const aiCommand = convertToAiCommand({
+                            ...step,
+                            action: 'click'
+                        });
+    
+                        test.info().annotations.push({
+                            type: 'Execution Method',
+                            description: '🤖 Attempting Zerostep execution'
+                        });
+    
+                        await ai(aiCommand, { page, test });
+    
+                        test.info().annotations.push({
+                            type: 'Execution Method',
+                            description: '✅ Successfully executed via Zerostep fallback'
+                        });
+                    } catch (zerostepError) {
+                        test.info().annotations.push({
+                            type: 'Execution Failed',
+                            description: `❌ Zerostep execution failed: ${zerostepError.message || 'Unknown error'}`
+                        });
+                        
+                        // Throw a more detailed error
+                        throw new Error(`Both Playwright and Zerostep failed to click "${step.locator}". Zerostep error: ${zerostepError.message}`);
+                    }
                 });
             } catch (error) {
-                test.info().attachments.push({
-                    name: 'AI Command Error',
-                    contentType: 'application/json',
-                    body: Buffer.from(JSON.stringify({ error: error.message }, null, 2))
+                // Log the final error state
+                test.info().annotations.push({
+                    type: 'Final Error',
+                    description: `❌ All attempts failed: ${error.message}`
+                });
+                throw error;
+            }
+        });
+    }
+
+    async handleInputData(page, step, test) {
+        return await test.step(`Input operation: "${step.value}" into "${step.locator}"`, async () => {
+            const startTime = Date.now();
+    
+            try {
+                // First try Playwright
+                await test.step(`🎭 Playwright Attempt`, async () => {
+                    const element = await handleElementAction(page, step, step.locatorType, test);
+    
+                    if (element) {
+                        try {
+                            await element.fill(step.value);
+                            
+                            test.info().attachments.push({
+                                name: 'Playwright Execution Details',
+                                contentType: 'application/json',
+                                body: Buffer.from(JSON.stringify({
+                                    executionMethod: 'Playwright',
+                                    action: 'ElementInputData',
+                                    locator: step.locator,
+                                    locatorType: step.locatorType,
+                                    value: step.value,
+                                    elementFound: true,
+                                    actionPerformed: 'fill',
+                                    timestamp: new Date().toISOString(),
+                                    duration: `${Date.now() - startTime}ms`
+                                }, null, 2))
+                            });
+    
+                            test.info().annotations.push({
+                                type: 'Execution Method',
+                                description: '✅ Executed via Playwright: ElementInputData'
+                            });
+                            return; // Exit if successful
+                        } catch (fillError) {
+                            console.log(`Playwright fill failed: ${fillError.message}`);
+                            // Continue to Zerostep
+                        }
+                    } else {
+                        console.log(`No element found with Playwright for: ${step.locator}`);
+                    }
+                });
+    
+                // If Playwright failed, try Zerostep
+                await test.step(`🤖 Zerostep Attempt`, async () => {
+                    try {
+                        const aiCommand = convertToAiCommand({
+                            ...step,
+                            action: 'type'
+                        });
+    
+                        test.info().annotations.push({
+                            type: 'Execution Method',
+                            description: '🤖 Attempting Zerostep execution'
+                        });
+    
+                        await ai(aiCommand, { page, test });
+    
+                        test.info().annotations.push({
+                            type: 'Execution Method',
+                            description: '✅ Successfully executed via Zerostep fallback'
+                        });
+    
+                        test.info().attachments.push({
+                            name: 'Zerostep Execution Details',
+                            contentType: 'application/json',
+                            body: Buffer.from(JSON.stringify({
+                                executionMethod: 'Zerostep',
+                                action: 'type',
+                                locator: step.locator,
+                                value: step.value,
+                                timestamp: new Date().toISOString(),
+                                duration: `${Date.now() - startTime}ms`
+                            }, null, 2))
+                        });
+    
+                    } catch (zerostepError) {
+                        test.info().annotations.push({
+                            type: 'Execution Failed',
+                            description: `❌ Zerostep execution failed: ${zerostepError.message || 'Unknown error'}`
+                        });
+                        
+                        // Throw a more detailed error
+                        throw new Error(`Both Playwright and Zerostep failed to input "${step.value}" into "${step.locator}". Zerostep error: ${zerostepError.message}`);
+                    }
+                });
+            } catch (error) {
+                // Log the final error state
+                test.info().annotations.push({
+                    type: 'Final Error',
+                    description: `❌ All attempts failed: ${error.message}`
                 });
                 throw error;
             }

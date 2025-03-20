@@ -25,7 +25,7 @@ export function readExcelFile(filePath) {
         const rawData = XLSX.utils.sheet_to_json(worksheet, {
             raw: true,
             defval: '',
-            header: ['TestID', 'Enabled', 'action', 'locator', 'value', 'waitBefore', 'waitAfter']
+            header: ['TestID', 'Enabled', 'action', 'locator', 'locatorType', 'value', 'waitBefore', 'waitAfter']
         });
 
         // Validate data presence
@@ -56,10 +56,11 @@ export function readExcelFile(filePath) {
                     testCases[testId] = [];
                 }
 
-                // Add step to test case
+                // Add step to test case with locatorType
                 testCases[testId].push({
                     action: row.action?.trim(),
                     locator: row.locator?.trim(),
+                    locatorType: row.locatorType?.trim() || '', // Include locatorType
                     value: row.value?.toString().trim(),
                     waitBefore: parseInt(row.waitBefore) || 0,
                     waitAfter: parseInt(row.waitAfter) || 0
@@ -77,7 +78,15 @@ export function readExcelFile(filePath) {
         Object.entries(testCases).forEach(([testId, steps]) => {
             console.log(`\nTest Case ${testId}:`);
             console.log(`Total Steps: ${steps.length}`);
-            console.log('Steps:', JSON.stringify(steps, null, 2));
+            steps.forEach((step, index) => {
+                console.log(`\nStep ${index + 1}:`);
+                console.log(`  Action: ${step.action}`);
+                console.log(`  Locator: ${step.locator}`);
+                console.log(`  Locator Type: ${step.locatorType || 'Not specified'}`);
+                console.log(`  Value: ${step.value || 'N/A'}`);
+                console.log(`  Wait Before: ${step.waitBefore}ms`);
+                console.log(`  Wait After: ${step.waitAfter}ms`);
+            });
         });
 
         return testCases;
@@ -108,6 +117,11 @@ function validateExcelData(data) {
         if (row.waitAfter && isNaN(parseInt(row.waitAfter))) {
             errors.push(`Row ${index + 1}: waitAfter must be a number`);
         }
+
+        // Validate locatorType if provided
+        if (row.locatorType && typeof row.locatorType !== 'string') {
+            errors.push(`Row ${index + 1}: locatorType must be a string`);
+        }
     });
 
     if (errors.length > 0) {
@@ -120,56 +134,35 @@ export function convertToAiCommand(step) {
         const action = step.action?.toLowerCase() || '';
         const locator = step.locator || '';
         const value = step.value || '';
+        const locatorType = step.locatorType || '';
 
         if (!action || !locator) {
             throw new Error('Invalid step: missing action or locator');
         }
+
         switch (action) {
             case 'click':
-                return `Click on the "${locator}"`;
+                return `Click on the ${locatorType} element containing text "${locator}"`;
             case 'nclick':
-                return `Click on the ${value} web element whose text as "${locator}"`;
+                return `Click on the ${locatorType} element containing text "${locator}"`;
             case 'type':
-                return `Enter '${value}' in the "${locator}"`;
+                return `Enter '${value}' in the ${locatorType} element with text "${locator}"`;
             case 'select':
-                return `Select '${value}' from the element with id or aria-label or name or placeholder or class or label with text as "${locator}"`;
-            case 'selectvalue':
-                return `ai("Click the dropdown or combo box labeled '${locator}', then select the option '${value}'")`;
+                return `Select '${value}' from the ${locatorType} element labeled "${locator}"`;
             case 'hover':
-                return `Hover over the element containing text as "${locator}"`;
-            case 'press':
-                return `Press ${value} in the element containing text as "${locator}"`;
-            case 'pressto':
-                return `Press ${value} web element whose text as "${locator}"`;
+                return `Hover over the ${locatorType} element containing text "${locator}"`;
             case 'scroll':
-                if (value.toLowerCase() === 'up') {
-                    return `scroll up until you find the element containing text as "${locator}"`;
-                } else if (value.toLowerCase() === 'down') {
-                    return `scroll down until you find the element containing text as "${locator}"`;
-                } else {
-                    return `Scroll to the element containing text or text as "${locator}" on page`;
-                }    
-            case 'verify':
-                return `Verify that the element containing text as "${locator}" contains '${value}'`;
+                return `Scroll to the ${locatorType} element containing text "${locator}"`;
+            case 'assert':
+                return `Verify that the ${locatorType} element containing text "${locator}" is present`;
             case 'waitfortext':
-                return `Wait for the text "${locator}" present on the page`;
-            case 'findlocator':
-                return `Look for the web element "${locator}" text containing '${value} and click it'`;
-            case 'stype':
-                if (locator.toLowerCase().includes('search')) {
-                    return `Look for a search box or search button at the top of the page. Click it to open or activate the search input. Once the search input is visible and active, carefully type "${value}" into it`;
-                }
-            case 'dismissmodal':
-                return `Look for and close "${locator}" modal popup using common close patterns like X button, close button, or by pressing Escape key`;
-            case 'devtools':
-                return `got otDevTools and click to the "${locator}" tab in DevTools`;
+                return `Wait for the ${locatorType} element containing text "${locator}"`;
             default:
                 return `${action} ${locator} ${value}`.trim();
         }
-    }
-    catch (error) {
+    } catch (error) {
         console.error('Error converting to AI command:', error);
-        throw new Error(`Failed to convert step to AI command: ${error.message}`);
+        throw error;
     }
 }
 

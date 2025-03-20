@@ -19,7 +19,7 @@ class LocatorManager {
 
             // Find all possible parser objects
             const parserRegexes = [
-                // For both amazon.js and bluenile.js standard format
+                // For all retailer js standard format
                 new RegExp(`const\\s+${parserName}\\s*=\\s*{([^}]*?)}`, 's'),
                 // For object property format
                 new RegExp(`${parserName}:\\s*{([^}]*?)}`, 's'),
