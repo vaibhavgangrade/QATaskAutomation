@@ -5,10 +5,47 @@ import fs from 'fs';
 import { ActionHelper } from '../../utils/actionHelper.js';
 import dotenv from 'dotenv';
 import { retailerConfig } from '../../config/retailers.js';
+import initialBrowserSetup from '../../utils/initialBrowserSetup.js';
+
 
 dotenv.config();
 const retailer = process.env.RETAILER || 'amazon';
 const config = retailerConfig[retailer];
+
+// Enhanced screenshot capture helper
+async function captureScreenshot(page, timeout = 30000) {
+    try {
+        await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {
+            console.log('Wait for document to be loaded');
+        });
+
+        // Add a small delay to allow for visual stability
+        await page.waitForTimeout(500);
+
+        // Attempt screenshot with optimized options
+        return await page.screenshot(
+            {
+            timeout: timeout,
+            type: 'jpeg',
+            quality: 80,
+            scale: 'css',
+            animations: 'disabled'
+        });
+    } catch (error) {
+        console.warn(`Primary screenshot capture failed: ${error.message}`);
+        // Fallback attempt with minimal options
+        try {
+            return await page.screenshot({
+                timeout: 5000,
+                type: 'jpeg',
+                quality: 50
+            });
+        } catch (retryError) {
+            console.error(`Fallback screenshot failed: ${retryError.message}`);
+            return null;
+        }
+    }
+}
 
 // Define test cases at the top level
 const testCases = (() => {
@@ -24,120 +61,278 @@ const testCases = (() => {
     }
 })();
 
-test.describe('Test Automation Suite', () => {
+test.describe(`${retailer.toUpperCase()} E2E Test Suite`, () => {
     test.setTimeout(300000);
+    let sharedContext;
 
-    // Add test execution statistics
     const executionStats = {
+        retailer,
+        domain: config.domain,
         totalSteps: 0,
         playwrightSteps: 0,
         zerostepSteps: 0,
-        failedSteps: 0
+        failedSteps: 0,
+        startTime: new Date(),
+        endTime: null
     };
 
-    test.afterAll(async () => {
-        // Log final execution statistics
-        test.info().annotations.push({
-            type: 'Execution Statistics',
-            description: `
-                Total Steps: ${executionStats.totalSteps}
-                Playwright Steps: ${executionStats.playwrightSteps}
-                Zerostep Steps: ${executionStats.zerostepSteps}
-                Failed Steps: ${executionStats.failedSteps}
-            `
+    test.beforeAll(async ({ browser }, testInfo) => {
+        // sharedContext = await browser.newContext();
+        // await initialBrowserSetup.setupBrowser(sharedContext);
+
+        testInfo.annotations.push({ type: 'epic', description: 'E2E Tests' });
+        testInfo.annotations.push({ type: 'feature', description: retailer.toUpperCase() });
+    });
+
+    test.beforeEach(async ({ browser, context }, testInfo) => {
+        const metadata = {
+            browser: testInfo.project.name,
+            retailer: retailer.toUpperCase(),
+            domain: config.domain,
+            testFile: config.excelFile
+        };
+
+        Object.entries(metadata).forEach(([key, value]) => {
+            testInfo.annotations.push({ type: key, description: value });
+        });
+
+        testInfo.annotations.push(
+            { type: 'Browser', description: testInfo.project.name },
+            { type: 'Test Environment', description: `${retailer.toUpperCase()} - ${config.domain}` }
+        );
+
+        await testInfo.attach('retailer-config', {
+            body: Buffer.from(JSON.stringify({
+                retailer,
+                config,
+                testFile: config.excelFile
+            }, null, 2)),
+            contentType: 'application/json'
         });
     });
 
-
-    // Create a test for each test case
-    Object.entries(testCases).forEach(([testId, steps]) => {
-        test(`Test Case: ${testId}`, async ({ page }) => {
-            const actionHelper = new ActionHelper(page);
-
+    test.afterEach(async ({ page }, testInfo) => {
+        if (testInfo.status !== 'passed') {
             try {
-                await page.goto(`https://www.${config.domain}`, {
-                    waitUntil: 'domcontentloaded',
-                    timeout: 60000
-                });
-
-                for (const step of steps) {
-                    await test.step(`${step.action}`, async () => {
-                        if (step.waitBefore) {
-                            await page.waitForTimeout(parseInt(step.waitBefore));
-                        }
-
-                        switch (step.action.toLowerCase()) {
-                            case 'goto':
-                                await actionHelper.handleGoto(page, step);
-                                break;
-                            case 'assert':
-                                await actionHelper.handleAssert(page, step);
-                                break;
-                            case 'scrollto':
-                                await actionHelper.handleScrollTo(page, step);
-                                break;
-                            case 'clickto':
-                                await actionHelper.handleClickTo(page, step);
-                                break;
-                            case 'elementinputdata':
-                                try {
-                                    await actionHelper.handleInputData(page, step, test);
-                                    executionStats.playwrightSteps++;
-                                } catch (error) {
-                                    // If handleInputData used Zerostep as fallback successfully
-                                    if (error.message?.includes('Zerostep fallback')) {
-                                        executionStats.zerostepSteps++;
-                                    } else {
-                                        executionStats.failedSteps++;
-                                        throw error;
-                                    }
-                                }
-                                break;
-                            case 'presskey':
-                                await actionHelper.handlePressKey(page, step);
-                                break;
-                            case 'clickloc':
-                                await actionHelper.handleClickLoc(page, step);
-                                break;
-                            case 'checkvisible':
-                                await actionHelper.handleCheckVisible(page, step);
-                                break;
-                            case 'elementclick':
-                                try {
-                                    await actionHelper.handleTextBasedClick(page, step, test);
-                                    executionStats.playwrightSteps++;
-                                } catch (error) {
-                                    // If handleTextBasedClick used Zerostep as fallback successfully
-                                    if (error.message?.includes('Zerostep fallback')) {
-                                        executionStats.zerostepSteps++;
-                                    } else {
-                                        executionStats.failedSteps++;
-                                        throw error;
-                                    }
-                                }
-                                break;
-                            default:
-                                await actionHelper.handleAiCommand(page, step, test);
-                                executionStats.zerostepSteps++;
-                                break;
-
-                        }
-
-                        if (step.waitAfter) {
-                            await page.waitForTimeout(parseInt(step.waitAfter));
-                        }
-
-                        await page.screenshot({
-                            path: `./screenshots/${testId}_${step.action}_success.png`
-                        });
+                const screenshot = await captureScreenshot(page, 10000);
+                if (screenshot) {
+                    await testInfo.attach(`${retailer}-error-state`, {
+                        body: screenshot,
+                        contentType: 'image/jpeg'
                     });
                 }
-            } catch (error) {
-                console.error(`Test Case ${testId} failed:`, error);
-                executionStats.failedSteps++;
-                await page.screenshot({
-                    path: `./screenshots/${testId}_error.png`
+
+                const failureDetails = {
+                    retailer,
+                    testId: testInfo.title,
+                    status: testInfo.status,
+                    error: testInfo.error?.message,
+                    duration: testInfo.duration,
+                    screenshotCaptured: !!screenshot
+                };
+
+                await testInfo.attach('test-failure-details', {
+                    body: Buffer.from(JSON.stringify(failureDetails, null, 2)),
+                    contentType: 'application/json'
                 });
+
+                testInfo.annotations.push({
+                    type: 'description',
+                    description: `Test failed: ${testInfo.error?.message}`
+                });
+            } catch (error) {
+                console.error('Failed to capture failure state:', error);
+            }
+        }
+    });
+
+    test.afterAll(async ({ }, testInfo) => {
+        executionStats.endTime = new Date();
+        const duration = executionStats.endTime - executionStats.startTime;
+
+        // Log execution stats to console only
+        console.log('Test Execution Summary:', {
+            duration: `${Math.round(duration / 1000)}s`,
+            steps: {
+                total: executionStats.totalSteps,
+                playwright: executionStats.playwrightSteps,
+                zerostep: executionStats.zerostepSteps,
+                failed: executionStats.failedSteps
+            },
+            success_rate: `${Math.round(((executionStats.totalSteps - executionStats.failedSteps) / executionStats.totalSteps) * 100)}%`
+        });
+    });
+
+    Object.entries(testCases).forEach(([testId, steps]) => {
+        test(`${retailer.toUpperCase()} - ${testId}`, async ({ page, context }, testInfo) => {
+            // Use the shared context instead of creating a new one
+            // const page = await sharedContext.newPage();
+              // Initialize browser setup for each test
+              await initialBrowserSetup.setupBrowser(context);
+              const actionHelper = new ActionHelper(page);
+
+            testInfo.annotations.push(
+                { type: 'story', description: testId },
+                { type: 'suite', description: `${retailer.toUpperCase()} Test Suite` },
+                {
+                    type: 'description', description: `
+                    Retailer: ${retailer.toUpperCase()}
+                    Test ID: ${testId}
+                    Steps Count: ${steps.length}
+                    Domain: ${config.domain}
+                ` }
+            );
+
+            testInfo.annotations.push(
+                { type: 'Test ID', description: testId },
+                { type: 'Steps Count', description: String(steps.length) },
+                { type: 'Retailer', description: retailer.toUpperCase() }
+            );
+
+            try {
+                // Initial navigation with timeout
+                await test.step(`Navigate to ${config.domain}`, async () => {
+                    await page.goto(`https://www.${config.domain}`, {
+                        waitUntil: 'domcontentloaded',
+                        timeout: 60000
+                    });
+
+
+                    try {
+                        const screenshot = await captureScreenshot(page, 10000);
+                        if (screenshot) {
+                            await testInfo.attach(`${retailer}-initial-page`, {
+                                body: screenshot,
+                                contentType: 'image/jpeg'
+                            });
+                        }
+                    } catch (screenshotError) {
+                        console.warn(`Initial screenshot failed: ${screenshotError.message}`);
+                    }
+                });
+
+                // Execute test steps
+                for (const step of steps) {
+                    executionStats.totalSteps++;
+
+                    await test.step(`${step.action}: ${step.locator || ''}`, async () => {
+                        try {
+                            if (step.waitBefore) {
+                                const waitTime = Math.min(parseInt(step.waitBefore), 5000);
+                                await page.waitForTimeout(waitTime);
+                            }
+
+                            // Dynamic action handling with timeouts
+                            switch (step.action.toLowerCase()) {
+                                case 'goto':
+                                    await actionHelper.handleGoto(page, step, test);
+                                    executionStats.playwrightSteps++;
+                                    break;
+
+                                case 'type':
+                                    await actionHelper.handleInputData(page, step, test),
+                                    executionStats.playwrightSteps++;
+                                    break;
+
+                                case 'click':
+                                    try {
+                                        await actionHelper.handleTextBasedClick(page, step, test);
+                                        executionStats.playwrightSteps++;
+                                    } catch (error) {
+                                        console.error(`Click action failed: ${error.message}`);
+                                        executionStats.failedSteps++;
+                                        throw error;
+                                    }
+                                    break;
+                                case 'scroll':
+                                    await actionHelper.handleScroll(page, step, test),
+                                    executionStats.playwrightSteps++;
+                                    break;
+
+                                case 'waitfortext':
+                                    await actionHelper.handleCheckVisible(page, step, test)
+                                    executionStats.playwrightSteps++;
+                                    break;
+
+                                default:
+                                    await actionHelper.handleAiCommand(page, step, test);
+                                    executionStats.zerostepSteps++;
+                                    break;
+                            }
+
+                            if (step.waitAfter) {
+                                const waitTime = Math.min(parseInt(step.waitAfter), 5000);
+                                await page.waitForTimeout(waitTime);
+                            }
+
+                            // Optimized screenshot capture with retry
+                            let stepScreenshot = null;
+                            for (let attempt = 1; attempt <= 2; attempt++) {
+                                try {
+                                    stepScreenshot = await captureScreenshot(page, attempt === 1 ? 10000 : 5000);
+                                    if (stepScreenshot) break;
+                                } catch (screenshotError) {
+                                    console.warn(`Screenshot attempt ${attempt} failed: ${screenshotError.message}`);
+                                    if (attempt === 2) break;
+                                }
+                            }
+
+                            if (stepScreenshot) {
+                                await testInfo.attach(`${retailer}-${step.action}-success`, {
+                                    body: stepScreenshot,
+                                    contentType: 'image/jpeg'
+                                });
+                            }
+
+                        } catch (error) {
+                            console.error(`Step failed: ${step.action}`, error);
+
+                            try {
+                                const errorScreenshot = await captureScreenshot(page, 5000);
+                                if (errorScreenshot) {
+                                    await testInfo.attach(`${retailer}-error-state`, {
+                                        body: errorScreenshot,
+                                        contentType: 'image/jpeg'
+                                    });
+                                }
+                            } catch (screenshotError) {
+                                console.warn('Failed to capture error screenshot:', screenshotError.message);
+                            }
+
+                            await testInfo.attach('error-details', {
+                                body: Buffer.from(JSON.stringify({
+                                    error: error.message,
+                                    stack: error.stack,
+                                    action: step.action,
+                                    locator: step.locator,
+                                    value: step.value,
+                                    timestamp: new Date().toISOString()
+                                }, null, 2)),
+                                contentType: 'application/json'
+                            });
+
+                            executionStats.failedSteps++;
+                            throw error;
+                        }
+                    });
+                }
+
+            } catch (error) {
+                console.error(`${retailer.toUpperCase()} Test Case ${testId} failed:`, error);
+                executionStats.failedSteps++;
+
+                try {
+                    const finalScreenshot = await captureScreenshot(page, 5000);
+                    if (finalScreenshot) {
+                        await testInfo.attach(`${retailer}-final-error-state`, {
+                            body: finalScreenshot,
+                            contentType: 'image/jpeg'
+                        });
+                    }
+                } catch (screenshotError) {
+                    console.warn('Failed to capture final error state:', screenshotError.message);
+                }
+
                 throw error;
             }
         });

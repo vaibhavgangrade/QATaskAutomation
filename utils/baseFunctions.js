@@ -20,135 +20,225 @@ async function getListValues(page, locator) {
 async function getCommonLocators(page, step) {
     const searchText = step.locator?.toString().trim();
     const locatorType = step.locatorType?.toString().toLowerCase().trim();
+    const inputType = step.value?.toString().toLowerCase().trim();
 
     console.log(`🔍 Searching for ${locatorType} with text/attribute: "${searchText}"`);
 
-    // Base selectors that work for all element types
-    const baseSelectors = [
-        `${locatorType}:has-text("${searchText}")`,
-        `${locatorType}:text("${searchText}")`,
-        `${locatorType}[aria-label="${searchText}"]`,
-        `${locatorType}[aria-label*="${searchText}"]`,
-        `${locatorType}[data-testid*="${searchText}"]`,
-        `${locatorType}[data-test*="${searchText}"]`,
-        `${locatorType}[data-cy*="${searchText}"]`,
-        `${locatorType}[id*="${searchText}"]`,
-        `${locatorType}[name="${searchText}"]`
+    // Input type-specific patterns
+    const inputTypePatterns = {
+        password: [
+            'input[type="password"]',
+            '#ap_password',
+            'input[name="password"]',
+            'input[aria-label*="password" i]',
+            'input[placeholder*="password" i]',
+            'input[type="password"][name*="password"]',
+            'input[type="password"][id*="password"]'
+        ],
+        email: [
+            'input[type="email"]',
+            'input[name*="email"]',
+            'input[id*="email"]',
+            'input[aria-label*="email" i]',
+            'input[placeholder*="email" i]'
+        ],
+        text: [
+            'input[type="text"]',
+            'input:not([type])',
+            'input[aria-label*="text"]',
+            'input[role="textbox"]'
+        ],
+        search: [
+            'input[type="search"]',
+            'input[role="searchbox"]',
+            'input[name*="search"]',
+            'input[aria-label*="search" i]'
+        ],
+        tel: [
+            'input[type="tel"]',
+            'input[name*="phone"]',
+            'input[aria-label*="phone" i]',
+            'input[placeholder*="phone" i]'
+        ],
+        number: [
+            'input[type="number"]',
+            'input[inputmode="numeric"]',
+            'input[aria-label*="number" i]'
+        ]
+    };
+
+    // Common attribute patterns
+    const commonAttributePatterns = [
+        // Generic attribute name patterns
+        `${locatorType}[(name|id|label|aria-label)="${searchText}"]`,
+        `${locatorType}[(name|id|label|aria-label)*="${searchText}"]`,
+        // Data attributes
+        `${locatorType}[data-*="${searchText}"]`,
+        `${locatorType}[(data-test|data-testid|data-cy|data-automation)="${searchText}"]`,
+        // ARIA attributes
+        `${locatorType}[(aria-describedby|aria-label|aria-labelledby)*="${searchText}"]`,
+        // Common UI attributes
+        `${locatorType}[(title|alt|placeholder|value)*="${searchText}"]`
     ];
 
     // Element-specific selector strategies
     const elementSpecificSelectors = {
-        button: [
-            `button:has-text("${searchText}")`,
-            `button[type="submit"]:has-text("${searchText}")`,
-            `button[type="button"]:has-text("${searchText}")`,
-            `input[type="button"][value*="${searchText}"]`,
-            `input[type="submit"][value*="${searchText}"]`,
-            `a:has-text("${searchText}")`,
-            `[role="button"]:has-text("${searchText}")`
-        ],
         input: [
-            `input[placeholder="${searchText}"]`,
-            `input[placeholder*="${searchText}"]`,
-            `input[type="text"][placeholder*="${searchText}"]`,
-            `input[name="${searchText}"]`,
-            `textarea[placeholder*="${searchText}"]`,
-            `label:has-text("${searchText}") + input`,
+            // Add type-specific selectors if type is provided
+            ...(inputType && inputTypePatterns[inputType] ? 
+                inputTypePatterns[inputType].map(selector => 
+                    `${selector}[(name|id|placeholder|aria-label)*="${searchText}"]`
+                ) : []),
+            // General input patterns
+            `input[(type|name|id|aria-label)*="${searchText}"]`,
+            `input[type="text"][(name|id|placeholder|aria-label)*="${searchText}"]`,
+            `input[type="email"][(name|id|placeholder|aria-label)*="${searchText}"]`,
+            `input[type="password"][(name|id|placeholder|aria-label)*="${searchText}"]`,
+            `input[type="search"][(name|id|placeholder|aria-label)*="${searchText}"]`,
+            // Label associations
+            `label:text-matches("${searchText}", "i") + input`,
             `label:has-text("${searchText}") ~ input`,
-            `[role="textbox"][aria-label*="${searchText}"]`
+            `label[for*="${searchText}"] + input`,
+            // Role-based
+            `[role="textbox"][(name|id|aria-label)*="${searchText}"]`
+        ],
+        button: [
+            // Button variations
+            `button:text-matches("${searchText}", "i")`,
+            `button[(type|name|id|aria-label)*="${searchText}"]`,
+            // Input buttons
+            `input[type="button"][(value|name|id)*="${searchText}"]`,
+            `input[type="submit"][(value|name|id)*="${searchText}"]`,
+            // Role-based buttons
+            `[role="button"]:text-matches("${searchText}", "i")`,
+            // Links that act as buttons
+            `a:text-matches("${searchText}", "i")`,
+            `a[(href|title|aria-label)*="${searchText}"]`
         ],
         select: [
-            `select[name="${searchText}"]`,
-            `select[aria-label*="${searchText}"]`,
-            `label:has-text("${searchText}") + select`,
-            `[role="combobox"][aria-label*="${searchText}"]`
-        ],
-        checkbox: [
-            `input[type="checkbox"][name="${searchText}"]`,
-            `label:has-text("${searchText}") input[type="checkbox"]`,
-            `[role="checkbox"]:has-text("${searchText}")`
-        ],
-        radio: [
-            `input[type="radio"][name="${searchText}"]`,
-            `label:has-text("${searchText}") input[type="radio"]`,
-            `[role="radio"]:has-text("${searchText}")`
-        ],
-        link: [
-            `a:has-text("${searchText}")`,
-            `a[href*="${searchText}"]`,
-            `[role="link"]:has-text("${searchText}")`
-        ],
-        image: [
-            `img[alt="${searchText}"]`,
-            `img[src*="${searchText}"]`,
-            `[role="img"][aria-label*="${searchText}"]`
+            // Select elements
+            `select[(name|id|aria-label)*="${searchText}"]`,
+            // Combobox roles
+            `[role="combobox"][(name|id|aria-label)*="${searchText}"]`,
+            `[role="listbox"][(name|id|aria-label)*="${searchText}"]`,
+            // Label associations
+            `label:text-matches("${searchText}", "i") + select`
         ],
         div: [
-            `div:has-text("${searchText}")`,
-            `div[class*="${searchText}"]`,
-            `div[id*="${searchText}"]`
+            // Text content
+            `div:text-matches("${searchText}", "i")`,
+            // Common attributes
+            `div[(class|id|role|aria-label)*="${searchText}"]`,
+            // Nested text
+            `div:has(text="${searchText}")`,
+            // Role-based
+            `div[role][(aria-label|title)*="${searchText}"]`
         ],
         span: [
-            `span:has-text("${searchText}")`,
-            `span[class*="${searchText}"]`,
-            `span[id*="${searchText}"]`
+            // Text content
+            `span:text-matches("${searchText}", "i")`,
+            // Common attributes
+            `span[(class|id|role|aria-label)*="${searchText}"]`,
+            // Role-based
+            `span[role][(aria-label|title)*="${searchText}"]`
+        ],
+        a: [
+            // Link text
+            `a:text-matches("${searchText}", "i")`,
+            // Common attributes
+            `a[(href|title|aria-label)*="${searchText}"]`,
+            // Role-based
+            `[role="link"]:text-matches("${searchText}", "i")`
+        ],
+        img: [
+            // Image attributes
+            `img[(alt|title|src|aria-label)*="${searchText}"]`,
+            // Role-based
+            `[role="img"][(alt|title|aria-label)*="${searchText}"]`
         ],
         label: [
-            `label:has-text("${searchText}")`,
-            `[role="label"]:has-text("${searchText}")`
-            `[role="label"][aria-label*="${searchText}"]`
+            // Text content
+            `label:text-matches("${searchText}", "i")`,
+            // Common attributes
+            `label[(for|id|class)*="${searchText}"]`,
+            // Role-based
+            `[role="label"]:text-matches("${searchText}", "i")`
+        ],
+        p: [
+            // Paragraph text
+            `p:text-matches("${searchText}", "i")`,
+            // Common attributes
+            `p[(class|id|aria-label)*="${searchText}"]`
+        ],
+        h1: [
+            `h1:text-matches("${searchText}", "i")`,
+            `h1[(class|id|aria-label)*="${searchText}"]`
+        ],
+        h2: [
+            `h2:text-matches("${searchText}", "i")`,
+            `h2[(class|id|aria-label)*="${searchText}"]`
+        ],
+        h3: [
+            `h3:text-matches("${searchText}", "i")`,
+            `h3[(class|id|aria-label)*="${searchText}"]`
         ],
         table: [
-            `table[aria-label*="${searchText}"]`,
-            `th:has-text("${searchText}")`,
-            `td:has-text("${searchText}")`,
-            `[role="grid"][aria-label*="${searchText}"]`
+            // Table elements
+            `table[(id|aria-label)*="${searchText}"]`,
+            `th:text-matches("${searchText}", "i")`,
+            `td:text-matches("${searchText}", "i")`,
+            // Role-based
+            `[role="grid"][(aria-label)*="${searchText}"]`,
+            `[role="gridcell"]:text-matches("${searchText}", "i")`
         ],
-        dropdown: [
-            `select[name="${searchText}"]`,
-            `[role="combobox"][aria-label*="${searchText}"]`,
-            `[role="listbox"][aria-label*="${searchText}"]`,
-            `.dropdown:has-text("${searchText}")`
-            `[role="combobox"][aria-label*="${searchText}"]`
+        li: [
+            // List items
+            `li:text-matches("${searchText}", "i")`,
+            `li[(class|id|aria-label)*="${searchText}"]`
+        ],
+        textarea: [
+            // Textarea elements
+            `textarea[(name|id|placeholder|aria-label)*="${searchText}"]`,
+            // Label associations
+            `label:text-matches("${searchText}", "i") + textarea`
         ]
     };
 
-    // Framework-specific selectors
-    const frameworkSelectors = [
+    // Framework-specific patterns
+    const frameworkPatterns = [
         // Angular
-        `[ng-model="${searchText}"]`,
-        `[ng-bind="${searchText}"]`,
+        `[ng-model*="${searchText}"]`,
+        `[ng-bind*="${searchText}"]`,
+        `[formControlName*="${searchText}"]`,
         // React
         `[data-reactid*="${searchText}"]`,
         // Vue
-        `[v-model="${searchText}"]`,
+        `[v-model*="${searchText}"]`,
         // Common UI libraries
-        `[class*="MuiButton"][aria-label*="${searchText}"]`, // Material-UI
-        `[class*="ant-"][aria-label*="${searchText}"]`, // Ant Design
-        `[class*="chakra-"][aria-label*="${searchText}"]` // Chakra UI
+        `[class*="mui"][aria-label*="${searchText}"]`,
+        `[class*="ant-"][aria-label*="${searchText}"]`,
+        `[class*="chakra-"][aria-label*="${searchText}"]`,
+        `[class*="bootstrap-"][aria-label*="${searchText}"]`
     ];
 
-    // Combine all relevant selectors
-    let allSelectors = [...baseSelectors];
+    // Combine all selectors with priority for type-specific patterns
+    let allSelectors = [
+        ...(inputType && inputTypePatterns[inputType] ? inputTypePatterns[inputType] : []),
+        ...commonAttributePatterns,
+        ...(elementSpecificSelectors[locatorType] || []),
+        ...frameworkPatterns
+    ];
 
-    // Add element-specific selectors if available
-    if (elementSpecificSelectors[locatorType]) {
-        allSelectors = [...allSelectors, ...elementSpecificSelectors[locatorType]];
-    }
-
-    // Add framework selectors
-    allSelectors = [...allSelectors, ...frameworkSelectors];
-
-    // Try each selector strategy
+    // Try each selector
     for (const selector of allSelectors) {
         try {
-            const locator = page.locator(selector);
-            const count = await locator.count();
+            const element = page.locator(selector);
+            const count = await element.count();
             if (count > 0) {
-                const isVisible = await locator.first().isVisible().catch(() => false);
+                const isVisible = await element.first().isVisible().catch(() => false);
                 if (isVisible) {
-                    console.log(`✅ Found ${locatorType} element using selector: ${selector}`);
-                    return locator.first();
+                    console.log(`✅ Found ${locatorType} (type: ${inputType || 'any'}) using: ${selector}`);
+                    return element.first();
                 }
             }
         } catch (error) {
@@ -156,17 +246,24 @@ async function getCommonLocators(page, step) {
         }
     }
 
-    // If no element found with specific selectors, try generic text search
+    // Try generic text search as last resort
     try {
-        const genericSelector = `:text("${searchText}")`;
-        const element = page.locator(genericSelector);
-        const isVisible = await element.first().isVisible().catch(() => false);
-        if (isVisible) {
-            console.log(`⚠️ Found element using generic text selector: ${genericSelector}`);
-            return element.first();
+        const textSelectors = [
+            `:text-matches("${searchText}", "i")`,
+            `:has-text("${searchText}")`,
+            `text=${searchText}`
+        ];
+
+        for (const selector of textSelectors) {
+            const element = page.locator(selector);
+            const isVisible = await element.first().isVisible().catch(() => false);
+            if (isVisible) {
+                console.log(`⚠️ Found using text selector: ${selector}`);
+                return element.first();
+            }
         }
     } catch (error) {
-        console.log(`❌ No element found for ${locatorType}: ${searchText}`);
+        console.log(`❌ No element found for ${locatorType} (type: ${inputType || 'any'}): ${searchText}`);
     }
 
     return null;
@@ -175,45 +272,49 @@ async function getCommonLocators(page, step) {
 async function handleElementAction(page, step, actionType, test) {
     return await test.step(`Locating ${step.locatorType}: "${step.locator}"`, async () => {
         try {
-            await test.step(`Attempting Playwright selectors`, async () => {
-                const element = await getCommonLocators(page, step);
+            const element = await getCommonLocators(page, step);
 
-                if (element) {
-                    try {
-                        await element.waitFor({ state: 'visible', timeout: 5000 });
+            if (element) {
+                await element.waitFor({ state: 'visible', timeout: 5000 });
+                
+                test.info().annotations.push({
+                    type: 'Element Found',
+                    description: `✅ Element found using Playwright: ${step.locatorType} - "${step.locator}"`
+                });
+                
+                return element;
+            }
 
-                        // Add Playwright location details
-                        test.info().attachments.push({
-                            name: 'Playwright Location Details',
-                            contentType: 'application/json',
-                            body: Buffer.from(JSON.stringify({
-                                executionMethod: 'Playwright',
-                                elementType: step.locatorType,
-                                locator: step.locator,
-                                selector: await element.evaluate(el => el.outerHTML),
-                                timestamp: new Date().toISOString()
-                            }, null, 2))
-                        });
-
-                        return element; // Simply return the element if found
-                    } catch (error) {
-                        await test.step(`⚠️ Element found but not visible: ${error.message}`, async () => { });
-                        return null;
-                    }
-                }
-
-                await test.step(`⚠️ No element found with Playwright selectors`, async () => { });
-                return null;
+            test.info().annotations.push({
+                type: 'Element Not Found',
+                description: `❌ No element found: ${step.locatorType} - "${step.locator}"`
             });
+            return null;
         } catch (error) {
-            await test.step(`❌ Error in Playwright execution: ${error.message}`, async () => { });
+            test.info().annotations.push({
+                type: 'Execution Error',
+                description: `❌ Error in Playwright execution: ${error.message}`
+            });
             return null;
         }
     });
 }
 
+// Helper function to get the proper suffix for numbers
+function getSuffix(value) {
+    if (!value) return '';
+    const num = parseInt(value);
+    if (isNaN(num)) return value;
+    
+    if (num === 1) return 'first';
+    if (num === 2) return 'second';
+    if (num === 3) return 'third';
+    return `${num}th`;
+}
+
 module.exports = {
     getListValues,
     getCommonLocators,
-    handleElementAction
+    handleElementAction,
+    getSuffix
 };

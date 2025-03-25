@@ -56,7 +56,7 @@ module.exports = defineConfig({
                 '--enable-features=NetworkService,NetworkServiceInProcess',
                 '--allow-running-insecure-content',
                 '--disable-notifications',
-                '--no-sandbox',
+                '--no-sandbox', 
                 '--disable-setuid-sandbox'
             ]
         },
@@ -78,16 +78,6 @@ module.exports = defineConfig({
           origins: []
       }
     },
-
-    // Project-wide settings
-    projects: [
-        {
-            name: 'Chromium',
-            use: {
-                ...devices['Desktop Chrome']
-            }
-        }
-    ],
 
     // Additional configurations
     preserveOutput: 'always',
