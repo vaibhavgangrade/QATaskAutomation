@@ -17,7 +17,33 @@ class LocatorManager {
             const content = await fs.promises.readFile(filePath, 'utf8');
             console.log(`Searching for key: ${key} in parser: ${parserName}`);
 
-            // Find all possible parser objects
+            // First try to find function-based parser (like firstNameMobile2Parser)
+            const functionPattern = new RegExp(`function\\s+${parserName}\\s*\\([^)]*\\)\\s*{([^}]*)}`, 's');
+            const functionMatch = content.match(functionPattern);
+
+            if (functionMatch) {
+                const functionBody = functionMatch[1];
+                // Extract querySelector patterns from function body
+                const querySelectorPattern = /querySelector\(['"](.[^'"]+)['"]\)/g;
+                const selectors = [];
+                let match;
+                
+                while ((match = querySelectorPattern.exec(functionBody)) !== null) {
+                    selectors.push(match[1]);
+                }
+
+                if (selectors.length > 0) {
+                    const selector = selectors.join(' ');
+                    if (!this.parsers[parserName]) {
+                        this.parsers[parserName] = {};
+                    }
+                    this.parsers[parserName][key] = selector;
+                    console.log(`✅ Found function parser locator in ${parserName}:`, selector);
+                    return selector;
+                }
+            }
+
+            // If no function parser found, try object-based parsers
             const parserRegexes = [
                 // For all retailer js standard format
                 new RegExp(`const\\s+${parserName}\\s*=\\s*{([^}]*?)}`, 's'),
@@ -37,7 +63,11 @@ class LocatorManager {
             }
 
             if (!parserContent) {
-                throw new Error(`Parser ${parserName} not found in file`);
+                // Only throw error if we haven't found a function parser
+                if (!functionMatch) {
+                    throw new Error(`Parser ${parserName} not found in file`);
+                }
+                return null;
             }
 
             // Different patterns for locator definitions

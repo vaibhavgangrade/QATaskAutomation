@@ -1,0 +1,14 @@
+Cookies added successfully
+LocalStorage item set: session-token
+LocalStorage item set: csm-hit
+Setup completed for origin: https://www.${config.domain}
+🔍 Searching for  with text/attribute: "Hello, Sign in"
+⚠️ Found using text selector: :text-matches("Hello, Sign in", "i")
+🔍 Searching for  with text/attribute: "Sign in"
+⚠️ Found using text selector: :has-text("Sign in")
+Test Execution Summary: {
+  retailer: 'BLUENILE',
+  duration: '72s',
+  steps: { total: 4, playwright: 3, zerostep: 1, failed: 0 },
+  success_rate: '100%'
+}

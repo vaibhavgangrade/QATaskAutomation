@@ -66,10 +66,6 @@ export class ActionHelper {
             try {
                 if (page.isClosed()) return;
 
-                test.info().annotations.push({
-                    type: 'Assertion Start',
-                    description: `🔍 Verifying: "${step.value}"`
-                });
 
                 if (step.locator.startsWith('#')) {
                     const [parserName, keyName] = step.locator.substring(1).split(',').map(s => s.trim());
@@ -110,7 +106,7 @@ export class ActionHelper {
 
                 test.info().annotations.push({
                     type: 'Assertion Success',
-                    description: `✅ Successfully verified: "${step.value}"`
+                    description: `✅ Successfully assert value of '+${element}+ with value given : "${step.value}"`
                 });
 
             } catch (error) {
@@ -181,7 +177,7 @@ export class ActionHelper {
             } catch (error) {
                 test.info().annotations.push({
                     type: 'Input Failed',
-                    description: `❌ Input failed: ${error.message} using PlayWright`
+                    description: `❌ Input failed: using PlayWright ${step.locatorType} - ${step.locator}`
                 });
 
                 // Try Zerostep fallback
@@ -251,10 +247,6 @@ export class ActionHelper {
                                 await element.click({ timeout: 5000 });
                             }
                         }
-    
-                        // Wait for potential navigation
-                        await page.waitForLoadState('domcontentloaded', { timeout: 10000 })
-                            .catch(() => {}); // Ignore navigation timeout
     
                         // Capture after state
                         await page.waitForTimeout(500);

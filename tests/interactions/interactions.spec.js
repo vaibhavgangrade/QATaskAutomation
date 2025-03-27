@@ -73,7 +73,8 @@ test.describe(`${retailer.toUpperCase()} E2E Test Suite`, () => {
         zerostepSteps: 0,
         failedSteps: 0,
         startTime: new Date(),
-        endTime: null
+        endTime: null,
+        testCaseStats: {}
     };
 
     test.beforeAll(async ({ browser }, testInfo) => {
@@ -81,34 +82,15 @@ test.describe(`${retailer.toUpperCase()} E2E Test Suite`, () => {
         // await initialBrowserSetup.setupBrowser(sharedContext);
 
         testInfo.annotations.push({ type: 'epic', description: 'E2E Tests' });
-        testInfo.annotations.push({ type: 'feature', description: retailer.toUpperCase() });
+        testInfo.annotations.push({ type: 'feature', description: retailer.toUpperCase() + ' E2E Tests' });
     });
 
     test.beforeEach(async ({ browser, context }, testInfo) => {
-        const metadata = {
-            browser: testInfo.project.name,
-            retailer: retailer.toUpperCase(),
-            domain: config.domain,
-            testFile: config.excelFile
-        };
-
-        Object.entries(metadata).forEach(([key, value]) => {
-            testInfo.annotations.push({ type: key, description: value });
-        });
-
+        // Add basic test information annotations
         testInfo.annotations.push(
             { type: 'Browser', description: testInfo.project.name },
             { type: 'Test Environment', description: `${retailer.toUpperCase()} - ${config.domain}` }
         );
-
-        await testInfo.attach('retailer-config', {
-            body: Buffer.from(JSON.stringify({
-                retailer,
-                config,
-                testFile: config.excelFile
-            }, null, 2)),
-            contentType: 'application/json'
-        });
     });
 
     test.afterEach(async ({ page }, testInfo) => {
@@ -149,9 +131,15 @@ test.describe(`${retailer.toUpperCase()} E2E Test Suite`, () => {
     test.afterAll(async ({ }, testInfo) => {
         executionStats.endTime = new Date();
         const duration = executionStats.endTime - executionStats.startTime;
+        
+        // Calculate success rate
+        const successRate = Math.round(
+            ((executionStats.totalSteps - executionStats.failedSteps) / executionStats.totalSteps) * 100
+        );
 
-        // Log execution stats to console only
-        console.log('Test Execution Summary:', {
+        // Create detailed execution summary
+        const executionSummary = {
+            retailer: retailer.toUpperCase(),
             duration: `${Math.round(duration / 1000)}s`,
             steps: {
                 total: executionStats.totalSteps,
@@ -159,7 +147,29 @@ test.describe(`${retailer.toUpperCase()} E2E Test Suite`, () => {
                 zerostep: executionStats.zerostepSteps,
                 failed: executionStats.failedSteps
             },
-            success_rate: `${Math.round(((executionStats.totalSteps - executionStats.failedSteps) / executionStats.totalSteps) * 100)}%`
+            success_rate: `${successRate}%`
+        };
+
+        // Log summary to console
+        console.log('Test Execution Summary:', executionSummary);
+
+        // Add summary to test report
+        testInfo.annotations.push({
+            type: 'Execution Summary',
+            description: `
+                🎯 Total Steps: ${executionStats.totalSteps}
+                ⚡ Playwright Steps: ${executionStats.playwrightSteps} (${Math.round((executionStats.playwrightSteps/executionStats.totalSteps)*100)}%)
+                🤖 Zerostep Steps: ${executionStats.zerostepSteps} (${Math.round((executionStats.zerostepSteps/executionStats.totalSteps)*100)}%)
+                ❌ Failed Steps: ${executionStats.failedSteps}
+                ✅ Success Rate: ${successRate}%
+                ⏱️ Total Duration: ${Math.round(duration / 1000)}s
+            `
+        });
+
+        // Attach detailed summary to test report
+        await testInfo.attach('execution-summary', {
+            body: Buffer.from(JSON.stringify(executionSummary, null, 2)),
+            contentType: 'application/json'
         });
     });
 
@@ -171,17 +181,17 @@ test.describe(`${retailer.toUpperCase()} E2E Test Suite`, () => {
               await initialBrowserSetup.setupBrowser(context);
               const actionHelper = new ActionHelper(page);
 
-            testInfo.annotations.push(
-                { type: 'story', description: testId },
-                { type: 'suite', description: `${retailer.toUpperCase()} Test Suite` },
-                {
-                    type: 'description', description: `
-                    Retailer: ${retailer.toUpperCase()}
-                    Test ID: ${testId}
-                    Steps Count: ${steps.length}
-                    Domain: ${config.domain}
-                ` }
-            );
+            // testInfo.annotations.push(
+            //     { type: 'story', description: testId },
+            //     { type: 'suite', description: `${retailer.toUpperCase()} Test Suite` },
+            //     {
+            //         type: 'description', description: `
+            //         Retailer: ${retailer.toUpperCase()}
+            //         Test ID: ${testId}
+            //         Steps Count: ${steps.length}
+            //         Domain: ${config.domain}
+            //     ` }
+            // );
 
             testInfo.annotations.push(
                 { type: 'Test ID', description: testId },
@@ -218,8 +228,7 @@ test.describe(`${retailer.toUpperCase()} E2E Test Suite`, () => {
                     await test.step(`${step.action}: ${step.locator || ''}`, async () => {
                         try {
                             if (step.waitBefore) {
-                                const waitTime = Math.min(parseInt(step.waitBefore), 5000);
-                                await page.waitForTimeout(waitTime);
+                                await page.waitForTimeout(parseInt(step.waitBefore));
                             }
 
                             // Dynamic action handling with timeouts
@@ -254,6 +263,11 @@ test.describe(`${retailer.toUpperCase()} E2E Test Suite`, () => {
                                     executionStats.playwrightSteps++;
                                     break;
 
+                                case 'assert':
+                                        await actionHelper.handleAssert(page, step, test)
+                                        executionStats.playwrightSteps++;
+                                        break;
+
                                 default:
                                     await actionHelper.handleAiCommand(page, step, test);
                                     executionStats.zerostepSteps++;
@@ -261,8 +275,7 @@ test.describe(`${retailer.toUpperCase()} E2E Test Suite`, () => {
                             }
 
                             if (step.waitAfter) {
-                                const waitTime = Math.min(parseInt(step.waitAfter), 5000);
-                                await page.waitForTimeout(waitTime);
+                                await page.waitForTimeout(parseInt(step.waitAfter))
                             }
 
                             // Optimized screenshot capture with retry
