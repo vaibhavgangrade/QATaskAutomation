@@ -80,6 +80,7 @@ test.describe(`${retailer.toUpperCase()} E2E Test Suite`, () => {
         playwrightSteps: 0,
         zerostepSteps: 0,
         failedSteps: 0,
+        skippedSteps: 0,
         startTime: new Date(),
         endTime: null
     };
@@ -139,65 +140,38 @@ test.describe(`${retailer.toUpperCase()} E2E Test Suite`, () => {
         executionStats.endTime = new Date();
         const duration = executionStats.endTime - executionStats.startTime;
         
-        // Calculate success rate based on total steps
         const successfulSteps = executionStats.playwrightSteps + executionStats.zerostepSteps;
-        const totalSteps = executionStats.totalSteps;
-        const successRate = totalSteps > 0 ? Math.round((successfulSteps / totalSteps) * 100) : 0;
+        const successRate = Math.round((successfulSteps / executionStats.totalSteps) * 100);
 
-        const executionSummary = {
-            retailer: retailer.toUpperCase(),
-            duration: `${Math.round(duration / 1000)}s`,
-            steps: {
-                total: totalSteps,
-                playwright: executionStats.playwrightSteps,
-                zerostep: executionStats.zerostepSteps,
-                failed: executionStats.failedSteps
-            },
-            success_rate: `${successRate}%`
-        };
-
-        // Add summary to test report
         testInfo.annotations.push({
             type: 'Execution Summary',
             description: `
-                🎯 Total Steps: ${totalSteps}
-                ⚡ Playwright Steps: ${executionStats.playwrightSteps} (${Math.round((executionStats.playwrightSteps/totalSteps)*100)}%)
-                🤖 Zerostep Steps: ${executionStats.zerostepSteps} (${Math.round((executionStats.zerostepSteps/totalSteps)*100)}%)
+                🎯 Total Steps: ${executionStats.totalSteps}
+                ⚡ Playwright Steps: ${executionStats.playwrightSteps} (${Math.round((executionStats.playwrightSteps/executionStats.totalSteps)*100)}%)
+                🤖 Zerostep Steps: ${executionStats.zerostepSteps} (${Math.round((executionStats.zerostepSteps/executionStats.totalSteps)*100)}%)
                 ❌ Failed Steps: ${executionStats.failedSteps}
+                ⏸️ Skipped Steps: ${executionStats.skippedSteps}
                 ✅ Success Rate: ${successRate}%
                 ⏱️ Total Duration: ${Math.round(duration / 1000)}s
             `
-        });
-
-        await testInfo.attach('execution-summary', {
-            body: Buffer.from(JSON.stringify(executionSummary, null, 2)),
-            contentType: 'application/json'
         });
     });
 
     Object.entries(testCases).forEach(([testId, steps]) => {
         test(`${retailer.toUpperCase()} - ${testId}`, async ({ page, context }, testInfo) => {
-            // Use the shared context instead of creating a new one
-            // const page = await sharedContext.newPage();
-              // Initialize browser setup for each test
-              await initialBrowserSetup.setupBrowser(context);
-              const actionHelper = new ActionHelper(page);
+            await initialBrowserSetup.setupBrowser(context);
+            const actionHelper = new ActionHelper(page);
 
-            // testInfo.annotations.push(
-            //     { type: 'story', description: testId },
-            //     { type: 'suite', description: `${retailer.toUpperCase()} Test Suite` },
-            //     {
-            //         type: 'description', description: `
-            //         Retailer: ${retailer.toUpperCase()}
-            //         Test ID: ${testId}
-            //         Steps Count: ${steps.length}
-            //         Domain: ${config.domain}
-            //     ` }
-            // );
+            // Reset execution stats for each test
+            executionStats.totalSteps = steps.filter(step => step.Enabled?.toLowerCase() !== 'no').length;
+            executionStats.playwrightSteps = 0;
+            executionStats.zerostepSteps = 0;
+            executionStats.failedSteps = 0;
+            executionStats.skippedSteps = steps.filter(step => step.Enabled?.toLowerCase() === 'no').length;
 
             testInfo.annotations.push(
                 { type: 'Test ID', description: testId },
-                { type: 'Steps Count', description: String(steps.length) },
+                { type: 'Steps Count', description: String(executionStats.totalSteps) },
                 { type: 'Retailer', description: retailer.toUpperCase() }
             );
 
@@ -225,7 +199,9 @@ test.describe(`${retailer.toUpperCase()} E2E Test Suite`, () => {
 
                 // Execute test steps
                 for (const step of steps) {
-                    executionStats.totalSteps++;
+                    if (step.Enabled?.toLowerCase() === 'no') {
+                        continue;
+                    }
 
                     await test.step(`${step.action}: ${step.locator || ''}`, async () => {
                         try {
@@ -233,8 +209,7 @@ test.describe(`${retailer.toUpperCase()} E2E Test Suite`, () => {
                                 await page.waitForTimeout(parseInt(step.waitBefore));
                             }
 
-                            // Capture annotations count before step execution
-                            const beforeAnnotations = test.info().annotations.length;
+                            const beforeAnnotations = testInfo.annotations.length;
 
                             try {
                                 switch (step.action.toLowerCase()) {
@@ -264,51 +239,31 @@ test.describe(`${retailer.toUpperCase()} E2E Test Suite`, () => {
                                         break;
                                 }
 
-                                // Check new annotations to determine step result
-                                const newAnnotations = test.info().annotations.slice(beforeAnnotations);
+                                // Check annotations immediately after action
+                                const newAnnotations = testInfo.annotations.slice(beforeAnnotations);
                                 
                                 // Check for Zerostep success
-                                const zerostepSuccess = newAnnotations.some(a => 
-                                    // Check for explicit Zerostep success
-                                    (a.type?.toLowerCase() === 'zerostep success') ||
-                                    // Check for AI Command success
-                                    (a.type?.toLowerCase().includes('ai command') && 
-                                     a.description?.toLowerCase().includes('success')) ||
-                                    // Check for successful fallback to Zerostep
+                                if (newAnnotations.some(a => 
+                                    a.type === 'Zerostep Success' || 
+                                    a.description?.includes('Action completed using Zerostep') ||
                                     (a.type?.toLowerCase().includes('fallback') && 
-                                     a.description?.toLowerCase().includes('zerostep')) ||
-                                    // Check for explicit Zerostep completion
-                                    (a.description?.toLowerCase().includes('action completed using zerostep'))
-                                );
-
-                                // Check for Playwright success - only if not already counted as Zerostep
-                                const playwrightSuccess = !zerostepSuccess && newAnnotations.some(a => 
-                                    (
-                                        (a.description?.includes('✅') || a.description?.includes('⚡')) &&
-                                        (
-                                            a.description?.toLowerCase().includes('playwright') ||
-                                            a.type?.toLowerCase().includes('navigation success') ||
-                                            a.type?.toLowerCase().includes('assertion success') ||
-                                            a.type?.toLowerCase().includes('click success') ||
-                                            a.type?.toLowerCase().includes('scroll success') ||
-                                            a.type?.toLowerCase().includes('visibility success')
-                                        )
-                                    )
-                                );
-
-                                // Check for failures (only if no success)
-                                const hasFailure = !zerostepSuccess && !playwrightSuccess && 
-                                    newAnnotations.some(a => 
-                                        (a.description?.includes('❌') || a.type?.toLowerCase().includes('error')) && 
-                                        !a.description?.toLowerCase().includes('fallback')
-                                    );
-
-                                // Update execution stats
-                                if (zerostepSuccess) {
+                                     a.description?.toLowerCase().includes('zerostep'))
+                                )) {
                                     executionStats.zerostepSteps++;
-                                } else if (playwrightSuccess) {
+                                }
+                                // Check for Playwright success
+                                else if (newAnnotations.some(a => 
+                                    (a.description?.includes('✅') || a.description?.includes('⚡')) &&
+                                    !a.description?.toLowerCase().includes('zerostep')
+                                )) {
                                     executionStats.playwrightSteps++;
-                                } else if (hasFailure) {
+                                }
+                                // Check for failures
+                                else if (newAnnotations.some(a => 
+                                    (a.description?.includes('❌') || 
+                                     a.type?.toLowerCase().includes('error')) &&
+                                    !a.description?.toLowerCase().includes('fallback')
+                                )) {
                                     executionStats.failedSteps++;
                                 }
 
@@ -317,35 +272,26 @@ test.describe(`${retailer.toUpperCase()} E2E Test Suite`, () => {
                                 }
 
                             } catch (error) {
-                                // Only increment failedSteps if we haven't already counted this step
-                                const currentAnnotations = test.info().annotations;
-                                const hasFailureAnnotation = currentAnnotations.some(a => 
-                                    a.description?.includes('❌') && 
-                                    !a.description?.toLowerCase().includes('fallback')
-                                );
-                                
-                                if (!hasFailureAnnotation) {
+                                // Check if the error was handled by Zerostep
+                                const errorAnnotations = testInfo.annotations.slice(beforeAnnotations);
+                                if (errorAnnotations.some(a => 
+                                    a.type === 'Zerostep Success' || 
+                                    a.description?.includes('Action completed using Zerostep')
+                                )) {
+                                    executionStats.zerostepSteps++;
+                                } else {
                                     executionStats.failedSteps++;
-                                    test.info().annotations.push({
-                                        type: 'Execution Error',
-                                        description: `❌ Step failed: ${error.message}`
-                                    });
                                 }
                                 throw error;
                             }
                         } catch (error) {
-                            // This catch block handles any errors that weren't caught in the inner try-catch
-                            // Only increment failedSteps if it wasn't already counted
-                            const currentAnnotations = test.info().annotations;
-                            const hasFailureAnnotation = currentAnnotations.some(a => 
-                                a.description?.includes('❌') || 
-                                a.type?.toLowerCase().includes('failed') ||
-                                a.type?.toLowerCase().includes('error')
-                            );
-                            
-                            if (!hasFailureAnnotation) {
+                            // Only count as failed if not already counted as Zerostep success
+                            if (!testInfo.annotations.some(a => 
+                                a.type === 'Zerostep Success' || 
+                                a.description?.includes('Action completed using Zerostep')
+                            )) {
                                 executionStats.failedSteps++;
-                                test.info().annotations.push({
+                                testInfo.annotations.push({
                                     type: 'Execution Error',
                                     description: `❌ Step failed: ${error.message}`
                                 });
@@ -357,20 +303,6 @@ test.describe(`${retailer.toUpperCase()} E2E Test Suite`, () => {
 
             } catch (error) {
                 console.error(`${retailer.toUpperCase()} Test Case ${testId} failed:`, error);
-                executionStats.failedSteps++;
-
-                try {
-                    const finalScreenshot = await captureScreenshot(page, 5000);
-                    if (finalScreenshot) {
-                        await testInfo.attach(`${retailer}-final-error-state`, {
-                            body: finalScreenshot,
-                            contentType: 'image/jpeg'
-                        });
-                    }
-                } catch (screenshotError) {
-                    console.warn('Failed to capture final error state:', screenshotError.message);
-                }
-
                 throw error;
             }
         });

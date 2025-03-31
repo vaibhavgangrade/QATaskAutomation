@@ -1,6 +1,0 @@
-Primary screenshot capture failed: page.screenshot: Timeout 10000ms exceeded.
-Call log:
-  - taking page screenshot
-    - disabled all CSS animations
-  - waiting for fonts to load...
-
