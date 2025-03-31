@@ -17,13 +17,38 @@ class LocatorManager {
             const content = await fs.promises.readFile(filePath, 'utf8');
             console.log(`Searching for key: ${key} in parser: ${parserName}`);
 
+            // Special handling for cart-related keys
+            const cartKeys = ['items', 'discounts', 'sales_tax', 'shipping_amount', 'cart_total'];
+            if (cartKeys.includes(key)) {
+                console.log(`🛒 Extracting cart-specific locator for ${key}`);
+            }
+
             // First try to find function-based parser (like firstNameMobile2Parser)
             const functionPattern = new RegExp(`function\\s+${parserName}\\s*\\([^)]*\\)\\s*{([^}]*)}`, 's');
             const functionMatch = content.match(functionPattern);
 
             if (functionMatch) {
                 const functionBody = functionMatch[1];
-                // Extract querySelector patterns from function body
+                
+                // First try to find chained querySelector patterns
+                const chainedPattern = /querySelector\(['"](.[^'"]+)['"]\)\.querySelector\(['"](.[^'"]+)['"]\)/g;
+                const chainedMatch = chainedPattern.exec(functionBody);
+                
+                if (chainedMatch) {
+                    // For chained selectors like .querySelector('.a-section').querySelector('#deliver-to-customer-text')
+                    const selector1 = chainedMatch[1];
+                    const selector2 = chainedMatch[2];
+                    const combinedSelector = `${selector1} ${selector2}`;
+                    
+                    if (!this.parsers[parserName]) {
+                        this.parsers[parserName] = {};
+                    }
+                    this.parsers[parserName][key] = combinedSelector;
+                    console.log(`✅ Found chained selectors in ${parserName}:`, combinedSelector);
+                    return combinedSelector;
+                }
+
+                // If no chained selectors, try individual querySelector patterns
                 const querySelectorPattern = /querySelector\(['"](.[^'"]+)['"]\)/g;
                 const selectors = [];
                 let match;
@@ -102,12 +127,16 @@ class LocatorManager {
             return null;
 
         } catch (error) {
-            console.error('Error during extraction:', error.message);
+            console.error(`Failed to extract locator for ${parserName}.${key}:`, error);
             throw error;
         }
     }
 
     async getLocator(parserName, key) {
+        if (!parserName || !key) {
+            throw new Error(`Invalid parameters: parserName and key are required. Got parserName=${parserName}, key=${key}`);
+        }
+
         console.log(`Getting locator for key: ${key} from parser: ${parserName}`);
         
         // Check if we already have this parser and key cached
@@ -117,7 +146,11 @@ class LocatorManager {
         }
 
         // Otherwise, extract it from the file
-        return await this.extractLocators(parserName, key);
+        const locator = await this.extractLocators(parserName, key);
+        if (!locator) {
+            throw new Error(`No locator found for parser: ${parserName}, key: ${key}`);
+        }
+        return locator;
     }
 
     getAllLocators() {

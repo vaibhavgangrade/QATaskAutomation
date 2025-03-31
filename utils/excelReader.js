@@ -152,13 +152,13 @@ export function convertToAiCommand(step) {
             case 'hover':
                 return `Hover over the ${locatorType} element containing text "${locator}"`;
             case 'scroll':
-                return `Scroll to the ${locatorType} element containing text "${locator}"`;
-            case 'assert':
-                return `Verify that the ${locatorType} element containing text "${locator}" is present`;
+                return `Scroll to the ${locatorType} element containing text "${locator} and click on it"`;
             case 'waitfortext':
                 return `Wait for the ${locatorType} element containing text "${locator}"`;
+            case 'press':
+                return `Press ${value} in the "${locatorType}"`;
             default:
-                return `${action} ${locator} ${value}`.trim();
+                return `${value}`;
         }
     } catch (error) {
         console.error('Error converting to AI command:', error);

@@ -1,7 +1,0 @@
-{
-  "action": "textclick",
-  "locator": "Hello, Sign in",
-  "value": "",
-  "command": "textclick Hello, Sign in",
-  "timestamp": "2025-03-27T16:31:33.487Z"
-}

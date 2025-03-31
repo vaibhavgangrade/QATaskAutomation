@@ -73,8 +73,7 @@ test.describe(`${retailer.toUpperCase()} E2E Test Suite`, () => {
         zerostepSteps: 0,
         failedSteps: 0,
         startTime: new Date(),
-        endTime: null,
-        testCaseStats: {}
+        endTime: null
     };
 
     test.beforeAll(async ({ browser }, testInfo) => {
@@ -132,17 +131,16 @@ test.describe(`${retailer.toUpperCase()} E2E Test Suite`, () => {
         executionStats.endTime = new Date();
         const duration = executionStats.endTime - executionStats.startTime;
         
-        // Calculate success rate
-        const successRate = Math.round(
-            ((executionStats.totalSteps - executionStats.failedSteps) / executionStats.totalSteps) * 100
-        );
+        // Calculate success rate based on total steps
+        const successfulSteps = executionStats.playwrightSteps + executionStats.zerostepSteps;
+        const totalSteps = executionStats.totalSteps;
+        const successRate = totalSteps > 0 ? Math.round((successfulSteps / totalSteps) * 100) : 0;
 
-        // Create detailed execution summary
         const executionSummary = {
             retailer: retailer.toUpperCase(),
             duration: `${Math.round(duration / 1000)}s`,
             steps: {
-                total: executionStats.totalSteps,
+                total: totalSteps,
                 playwright: executionStats.playwrightSteps,
                 zerostep: executionStats.zerostepSteps,
                 failed: executionStats.failedSteps
@@ -150,23 +148,19 @@ test.describe(`${retailer.toUpperCase()} E2E Test Suite`, () => {
             success_rate: `${successRate}%`
         };
 
-        // Log summary to console
-        console.log('Test Execution Summary:', executionSummary);
-
         // Add summary to test report
         testInfo.annotations.push({
             type: 'Execution Summary',
             description: `
-                🎯 Total Steps: ${executionStats.totalSteps}
-                ⚡ Playwright Steps: ${executionStats.playwrightSteps} (${Math.round((executionStats.playwrightSteps/executionStats.totalSteps)*100)}%)
-                🤖 Zerostep Steps: ${executionStats.zerostepSteps} (${Math.round((executionStats.zerostepSteps/executionStats.totalSteps)*100)}%)
+                🎯 Total Steps: ${totalSteps}
+                ⚡ Playwright Steps: ${executionStats.playwrightSteps} (${Math.round((executionStats.playwrightSteps/totalSteps)*100)}%)
+                🤖 Zerostep Steps: ${executionStats.zerostepSteps} (${Math.round((executionStats.zerostepSteps/totalSteps)*100)}%)
                 ❌ Failed Steps: ${executionStats.failedSteps}
                 ✅ Success Rate: ${successRate}%
                 ⏱️ Total Duration: ${Math.round(duration / 1000)}s
             `
         });
 
-        // Attach detailed summary to test report
         await testInfo.attach('execution-summary', {
             body: Buffer.from(JSON.stringify(executionSummary, null, 2)),
             contentType: 'application/json'
@@ -231,100 +225,121 @@ test.describe(`${retailer.toUpperCase()} E2E Test Suite`, () => {
                                 await page.waitForTimeout(parseInt(step.waitBefore));
                             }
 
-                            // Dynamic action handling with timeouts
-                            switch (step.action.toLowerCase()) {
-                                case 'goto':
-                                    await actionHelper.handleGoto(page, step, test);
-                                    executionStats.playwrightSteps++;
-                                    break;
-
-                                case 'type':
-                                    await actionHelper.handleInputData(page, step, test),
-                                    executionStats.playwrightSteps++;
-                                    break;
-
-                                case 'click':
-                                    try {
-                                        await actionHelper.handleTextBasedClick(page, step, test);
-                                        executionStats.playwrightSteps++;
-                                    } catch (error) {
-                                        console.error(`Click action failed: ${error.message}`);
-                                        executionStats.failedSteps++;
-                                        throw error;
-                                    }
-                                    break;
-                                case 'scroll':
-                                    await actionHelper.handleScroll(page, step, test),
-                                    executionStats.playwrightSteps++;
-                                    break;
-
-                                case 'waitfortext':
-                                    await actionHelper.handleCheckVisible(page, step, test)
-                                    executionStats.playwrightSteps++;
-                                    break;
-
-                                case 'assert':
-                                        await actionHelper.handleAssert(page, step, test)
-                                        executionStats.playwrightSteps++;
-                                        break;
-
-                                default:
-                                    await actionHelper.handleAiCommand(page, step, test);
-                                    executionStats.zerostepSteps++;
-                                    break;
-                            }
-
-                            if (step.waitAfter) {
-                                await page.waitForTimeout(parseInt(step.waitAfter))
-                            }
-
-                            // Optimized screenshot capture with retry
-                            let stepScreenshot = null;
-                            for (let attempt = 1; attempt <= 2; attempt++) {
-                                try {
-                                    stepScreenshot = await captureScreenshot(page, attempt === 1 ? 10000 : 5000);
-                                    if (stepScreenshot) break;
-                                } catch (screenshotError) {
-                                    console.warn(`Screenshot attempt ${attempt} failed: ${screenshotError.message}`);
-                                    if (attempt === 2) break;
-                                }
-                            }
-
-                            if (stepScreenshot) {
-                                await testInfo.attach(`${retailer}-${step.action}-success`, {
-                                    body: stepScreenshot,
-                                    contentType: 'image/jpeg'
-                                });
-                            }
-
-                        } catch (error) {
-                            console.error(`Step failed: ${step.action}`, error);
+                            // Capture annotations count before step execution
+                            const beforeAnnotations = test.info().annotations.length;
 
                             try {
-                                const errorScreenshot = await captureScreenshot(page, 5000);
-                                if (errorScreenshot) {
-                                    await testInfo.attach(`${retailer}-error-state`, {
-                                        body: errorScreenshot,
-                                        contentType: 'image/jpeg'
+                                switch (step.action.toLowerCase()) {
+                                    case 'goto':
+                                        await actionHelper.handleGoto(page, step, test);
+                                        break;
+                                    case 'type':
+                                        await actionHelper.handleInputData(page, step, test);
+                                        break;
+                                    case 'click':
+                                        await actionHelper.handleTextBasedClick(page, step, test);
+                                        break;
+                                    case 'scroll':
+                                        await actionHelper.handleScroll(page, step, test);
+                                        break;
+                                    case 'waitfortext':
+                                        await actionHelper.handleCheckVisible(page, step, test);
+                                        break;
+                                    case 'assert':
+                                        await actionHelper.handleAssert(page, step, test);
+                                        break;
+                                    case 'cartassert':
+                                        await actionHelper.handleCartAssert(page, step, test);
+                                        break;
+                                    default:
+                                        await actionHelper.handleAiCommand(page, step, test);
+                                        break;
+                                }
+
+                                // Check new annotations to determine step result
+                                const newAnnotations = test.info().annotations.slice(beforeAnnotations);
+                                
+                                // Check for Zerostep success (including fallbacks)
+                                const zerostepSuccess = newAnnotations.some(a => 
+                                    (a.type?.toLowerCase().includes('zerostep') && 
+                                     a.description?.toLowerCase().includes('success')) ||
+                                    (a.type?.toLowerCase().includes('ai command') && 
+                                     a.description?.toLowerCase().includes('success')) ||
+                                    (a.type?.toLowerCase().includes('fallback') && 
+                                     a.description?.toLowerCase().includes('zerostep') &&
+                                     a.description?.toLowerCase().includes('succeeded'))
+                                );
+
+                                // Check for Playwright success - Include more success indicators
+                                const playwrightSuccess = !zerostepSuccess && newAnnotations.some(a => 
+                                    (
+                                        (a.description?.includes('✅') || a.description?.includes('⚡')) &&
+                                        (
+                                            a.description?.toLowerCase().includes('playwright') ||
+                                            a.type?.toLowerCase().includes('navigation success') ||
+                                            a.type?.toLowerCase().includes('assertion success') ||
+                                            a.type?.toLowerCase().includes('click success') ||
+                                            a.type?.toLowerCase().includes('scroll success') ||
+                                            a.type?.toLowerCase().includes('visibility success')
+                                        ) &&
+                                        !a.description?.toLowerCase().includes('zerostep')
+                                    )
+                                );
+
+                                // Check for failures (only if no success)
+                                const hasFailure = !zerostepSuccess && !playwrightSuccess && 
+                                    newAnnotations.some(a => 
+                                        (a.description?.includes('❌') || a.type?.toLowerCase().includes('error')) && 
+                                        !a.description?.toLowerCase().includes('fallback')
+                                    );
+
+                                // Update execution stats
+                                if (zerostepSuccess) {
+                                    executionStats.zerostepSteps++;
+                                } else if (playwrightSuccess) {
+                                    executionStats.playwrightSteps++;
+                                } else if (hasFailure) {
+                                    executionStats.failedSteps++;
+                                }
+
+                                if (step.waitAfter) {
+                                    await page.waitForTimeout(parseInt(step.waitAfter));
+                                }
+
+                            } catch (error) {
+                                // Only increment failedSteps if we haven't already counted this step
+                                const currentAnnotations = test.info().annotations;
+                                const hasFailureAnnotation = currentAnnotations.some(a => 
+                                    a.description?.includes('❌') && 
+                                    !a.description?.toLowerCase().includes('fallback')
+                                );
+                                
+                                if (!hasFailureAnnotation) {
+                                    executionStats.failedSteps++;
+                                    test.info().annotations.push({
+                                        type: 'Execution Error',
+                                        description: `❌ Step failed: ${error.message}`
                                     });
                                 }
-                            } catch (screenshotError) {
-                                console.warn('Failed to capture error screenshot:', screenshotError.message);
+                                throw error;
                             }
-
-                            await testInfo.attach('error-details', {
-                                body: Buffer.from(JSON.stringify({
-                                    error: error.message,
-                                    stack: error.stack,
-                                    action: step.action,
-                                    locator: step.locator,
-                                    value: step.value,
-                                    timestamp: new Date().toISOString()
-                                }, null, 2)),
-                                contentType: 'application/json'
-                            });
-
-                            executionStats.failedSteps++;
+                        } catch (error) {
+                            // This catch block handles any errors that weren't caught in the inner try-catch
+                            // Only increment failedSteps if it wasn't already counted
+                            const currentAnnotations = test.info().annotations;
+                            const hasFailureAnnotation = currentAnnotations.some(a => 
+                                a.description?.includes('❌') || 
+                                a.type?.toLowerCase().includes('failed') ||
+                                a.type?.toLowerCase().includes('error')
+                            );
+                            
+                            if (!hasFailureAnnotation) {
+                                executionStats.failedSteps++;
+                                test.info().annotations.push({
+                                    type: 'Execution Error',
+                                    description: `❌ Step failed: ${error.message}`
+                                });
+                            }
                             throw error;
                         }
                     });

@@ -6,12 +6,12 @@ export const retailerConfig = {
     },
     bluenile: {
         domain: 'bluenile.com',
-        excelFile: 'bluenile.xlsx',
+        excelFile: 'bluenilemaster.xlsx',
         jsfile: 'bluenile.js'
     },
     walmart: {
-        domain: 'walmart.com',
-        excelFile: 'walmart.xlsx',
+        domain: 'selectorshub.com',
+        excelFile: 'test.xlsx',
         jsfile: 'walmart.js'
     },
     costco: {

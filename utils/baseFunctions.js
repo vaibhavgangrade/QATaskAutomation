@@ -1,19 +1,34 @@
+import { locatorManager } from './locatorManager.js';
+const { expect } = require('@playwright/test');
+
 async function getListValues(page, locator) {
+    if (!page || !locator) {
+        throw new Error(`Invalid parameters: page and locator are required. Got page=${!!page}, locator=${locator}`);
+    }
+
     try {
         const element = page.locator(locator);
         await expect(element).toBeVisible({ timeout: 5000 });
 
         // Get text content and split by newline
         const text = await element.textContent();
+        if (!text) {
+            throw new Error(`No text content found for locator: ${locator}`);
+        }
+
         const values = text.split('\n')
             .map(item => item.trim())
             .filter(item => item !== '');
+
+        if (values.length === 0) {
+            throw new Error(`No valid values found in text content for locator: ${locator}`);
+        }
 
         console.log(`Found ${values.length} items:`, values);
         return values;
     } catch (error) {
         console.error('Error getting list values:', error.message);
-        throw error;
+        throw error; // Re-throw the error without any fallback
     }
 }
 
@@ -23,6 +38,107 @@ async function getCommonLocators(page, step) {
     const inputType = step.value?.toString().toLowerCase().trim();
 
     console.log(`🔍 Searching for ${locatorType} with text/attribute: "${searchText}"`);
+
+    // Universal ecommerce patterns
+    const universalEcommercePatterns = [
+        // Generic Product Related
+        `${locatorType}[data-product-id*="${searchText}"]`,
+        `${locatorType}[data-sku*="${searchText}"]`,
+        `${locatorType}[data-item*="${searchText}"]`,
+
+        // Common Shopping Elements
+        `${locatorType}[data-cart*="${searchText}"]`,
+        `${locatorType}[data-checkout*="${searchText}"]`,
+        `${locatorType}[data-basket*="${searchText}"]`,
+
+        // Common Header/Navigation
+        `${locatorType}[data-search*="${searchText}"]`,
+        `${locatorType}[data-menu*="${searchText}"]`,
+        `${locatorType}[data-nav*="${searchText}"]`,
+
+        // Common Footer
+        `${locatorType}[data-footer*="${searchText}"]`,
+        `${locatorType}[data-section*="${searchText}"]`,
+
+        // Common Button/Input Patterns
+        `${locatorType}[name*="search"][value*="${searchText}"]`,
+        `${locatorType}[name*="cart"][value*="${searchText}"]`,
+        `${locatorType}[name*="checkout"][value*="${searchText}"]`,
+
+        // Price Related
+        `${locatorType}[data-price*="${searchText}"]`,
+        `${locatorType}[data-amount*="${searchText}"]`,
+        `${locatorType}[data-currency*="${searchText}"]`,
+
+        // Common Form Elements
+        `${locatorType}[data-form*="${searchText}"]`,
+        `${locatorType}[data-input*="${searchText}"]`,
+        `${locatorType}[data-field*="${searchText}"]`,
+
+        // Common Authentication
+        `${locatorType}[data-login*="${searchText}"]`,
+        `${locatorType}[data-account*="${searchText}"]`,
+        `${locatorType}[data-auth*="${searchText}"]`,
+
+        // Common UI Elements
+        `${locatorType}[data-modal*="${searchText}"]`,
+        `${locatorType}[data-popup*="${searchText}"]`,
+        `${locatorType}[data-dialog*="${searchText}"]`,
+
+        // Common Content
+        `${locatorType}[data-content*="${searchText}"]`,
+        `${locatorType}[data-text*="${searchText}"]`,
+        `${locatorType}[data-label*="${searchText}"]`,
+
+        // Generic Attribute Combinations
+        `${locatorType}[id*="${searchText.toLowerCase()}"]`,
+        `${locatorType}[class*="${searchText.toLowerCase()}"]`,
+        `${locatorType}[name*="${searchText.toLowerCase()}"]`,
+
+        // Text Content Variations
+        `${locatorType}:has-text("${searchText}")`,
+        `${locatorType}:text-is("${searchText}")`,
+        `${locatorType}:contains("${searchText}")`,
+
+        // Common Testing Attributes
+        `${locatorType}[data-test*="${searchText}"]`,
+        `${locatorType}[data-testid*="${searchText}"]`,
+        `${locatorType}[data-qa*="${searchText}"]`,
+        `${locatorType}[data-cy*="${searchText}"]`,
+
+        // Accessibility
+        `${locatorType}[aria-label*="${searchText}"]`,
+        `${locatorType}[title*="${searchText}"]`,
+        `${locatorType}[alt*="${searchText}"]`,
+
+        // Dynamic Content
+        `${locatorType}[data-dynamic*="${searchText}"]`,
+        `${locatorType}[data-lazy*="${searchText}"]`,
+        `${locatorType}[data-load*="${searchText}"]`,
+
+        // Value Based
+        `${locatorType}[value*="${searchText}"]`,
+        `${locatorType}[placeholder*="${searchText}"]`,
+
+        // Nested Elements
+        `${locatorType}:has(> *:text-is("${searchText}"))`,
+        `${locatorType}:has(span:text-is("${searchText}"))`,
+        `${locatorType}:has(div:text-is("${searchText}"))`,
+
+        // Form Labels
+        `label:has-text("${searchText}") + ${locatorType}`,
+        `label[for*="${searchText}"] + ${locatorType}`,
+
+        // Common Interactive Elements
+        `${locatorType}[role="button"][aria-label*="${searchText}"]`,
+        `${locatorType}[role="link"][aria-label*="${searchText}"]`,
+        `${locatorType}[role="tab"][aria-label*="${searchText}"]`,
+
+        // Common State Attributes
+        `${locatorType}[data-state*="${searchText}"]`,
+        `${locatorType}[data-status*="${searchText}"]`,
+        `${locatorType}[data-condition*="${searchText}"]`
+    ]
 
     // Input type-specific patterns
     const inputTypePatterns = {
@@ -85,8 +201,8 @@ async function getCommonLocators(page, step) {
     const elementSpecificSelectors = {
         input: [
             // Add type-specific selectors if type is provided
-            ...(inputType && inputTypePatterns[inputType] ? 
-                inputTypePatterns[inputType].map(selector => 
+            ...(inputType && inputTypePatterns[inputType] ?
+                inputTypePatterns[inputType].map(selector =>
                     `${selector}[(name|id|placeholder|aria-label)*="${searchText}"]`
                 ) : []),
             // General input patterns
@@ -229,6 +345,32 @@ async function getCommonLocators(page, step) {
         ...frameworkPatterns
     ];
 
+    // Add these patterns for error messages and notifications
+    const additionalPatterns = [
+        // Error messages
+        `[role="alert"]:has-text("${searchText}")`,
+        `[class*="error"]:has-text("${searchText}")`,
+        `[class*="message"]:has-text("${searchText}")`,
+        `[class*="notification"]:has-text("${searchText}")`,
+        
+        // Form validation messages
+        `[aria-invalid="true"] ~ [role="alert"]`,
+        `[data-error]:has-text("${searchText}")`,
+        `[class*="validation"]:has-text("${searchText}")`,
+        
+        // Generic text containers
+        `div:has-text("${searchText}")`,
+        `span:has-text("${searchText}")`,
+        `p:has-text("${searchText}")`,
+        
+        // Common UI patterns
+        `[class*="toast"]:has-text("${searchText}")`,
+        `[class*="popup"]:has-text("${searchText}")`,
+        `[class*="modal"]:has-text("${searchText}")`
+    ];
+
+    allSelectors = [...allSelectors, ...additionalPatterns];
+
     // Try each selector
     for (const selector of allSelectors) {
         try {
@@ -276,12 +418,12 @@ async function handleElementAction(page, step, actionType, test) {
 
             if (element) {
                 await element.waitFor({ state: 'visible', timeout: 5000 });
-                
+
                 test.info().annotations.push({
                     type: 'Element Found',
                     description: `✅ Element found using Playwright: ${step.locatorType} - "${step.locator}"`
                 });
-                
+
                 return element;
             }
 
@@ -305,16 +447,125 @@ function getSuffix(value) {
     if (!value) return '';
     const num = parseInt(value);
     if (isNaN(num)) return value;
-    
+
     if (num === 1) return 'first';
     if (num === 2) return 'second';
     if (num === 3) return 'third';
     return `${num}th`;
 }
 
+// Helper method to get text from element
+async function getElementText(element) {
+    try {
+        // Try different methods to get text
+        let text = await element.textContent();
+        if (text?.trim()) return text;
+
+        text = await element.innerText();
+        if (text?.trim()) return text;
+
+        text = await element.inputValue();
+        if (text?.trim()) return text;
+
+        text = await element.getAttribute('value');
+        if (text?.trim()) return text;
+
+        return '';
+    } catch (error) {
+        console.error('Error getting element text:', error);
+        return '';
+    }
+}
+
+// Helper function to get value using parser
+async function getValueFromParser(page, parserName, key) {
+    try {
+        console.log(`🔍 Processing ${parserName}`);
+        
+        // Parse input format "#parsers,items"
+        const [parserId, keyId] = parserName.split(',');
+        const cleanParserId = parserId.replace('#', '');
+        
+        console.log(`Looking for ${keyId} in ${cleanParserId}`);
+
+        // Get base locator from amazon.js
+        const baseLocator = await locatorManager.getLocator(cleanParserId, keyId);
+        
+        if (!baseLocator) {
+            throw new Error(`No locator found for ${keyId} in ${cleanParserId}`);
+        }
+
+        // Get the container element
+        const container = page.locator(baseLocator);
+        await container.waitFor({ state: 'visible', timeout: 30000 });
+
+        // Define search terms
+        const searchTerms = {
+            cart_total: ["Order total", "Total"],
+            items: ["Items:", "Item:", "Items"],
+            shipping_amount: ["Shipping & handling", "Shipping"],
+            sales_tax: ["Estimated tax", "Tax"],
+            discounts: ["Discount", "Savings", "-$"]
+        };
+
+        // Find matching element
+        const elements = await container.locator('tr, li').all();
+        let matchingText = '';
+
+        for (const element of elements) {
+            const text = await element.textContent();
+            const terms = searchTerms[keyId];
+            if (terms.some(term => text.includes(term))) {
+                matchingText = text.trim();
+                break;
+            }
+        }
+
+        if (!matchingText) {
+            throw new Error(`Could not find ${keyId} in the summary table`);
+        }
+
+        // Extract numeric value
+        let value = '0';
+        let numeric = 0;
+
+        if (matchingText.toLowerCase().includes('free')) {
+            value = 'FREE';
+            numeric = 0;
+        } else {
+            const valueMatch = matchingText.match(/\$?([-]?\d+,?\d*\.?\d*)/);
+            if (valueMatch) {
+                value = valueMatch[0];
+                numeric = parseFloat(valueMatch[1].replace(/,/g, ''));
+                
+                // Handle discounts
+                if (matchingText.includes('-') || keyId === 'discounts') {
+                    numeric = -Math.abs(numeric);
+                }
+            } else {
+                throw new Error(`No numeric value found in: ${matchingText}`);
+            }
+        }
+
+        console.log(`✅ Found ${keyId}:`, { value, numeric });
+        return {
+            value: value,
+            numeric: numeric,
+            locator: baseLocator
+        };
+
+    } catch (error) {
+        console.error(`❌ Error processing ${key}:`, error.message);
+        throw error;
+    }
+}
+
+
 module.exports = {
     getListValues,
     getCommonLocators,
     handleElementAction,
-    getSuffix
+    getSuffix,
+    getElementText,
+    getValueFromParser
 };

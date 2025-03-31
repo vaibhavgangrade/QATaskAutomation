@@ -1,10 +1,10 @@
 import { test, expect } from '@playwright/test';
 import { ai } from '@zerostep/playwright';
 import { convertToAiCommand } from './excelReader.js';
-import { locatorManager } from './locatorManager.js';
+const { locatorManager } = require('./locatorManager.js');
 import axios from 'axios';
-import { handleElementAction, getCommonLocators, getSuffix } from './baseFunctions.js';
-import path from 'path';    
+import { handleElementAction, getCommonLocators, getSuffix, getValueFromParser, getElementText } from './baseFunctions.js';
+import path from 'path';
 
 function getPageName(url) {
     try {
@@ -54,7 +54,7 @@ export class ActionHelper {
             } catch (error) {
                 test.info().annotations.push({
                     type: 'Navigation Failed',
-                    description: `❌ Navigation failed: ${error.message}`
+                    description: `❌ Navigation failed: using playwright: ${step.locator}`
                 });
                 throw error;
             }
@@ -66,62 +66,280 @@ export class ActionHelper {
             try {
                 if (page.isClosed()) return;
 
+                let element;
+                let elementLocator;
+                let expectedText = step.value;
+                let targetIndex = 1; // default to first element
 
-                if (step.locator.startsWith('#')) {
-                    const [parserName, keyName] = step.locator.substring(1).split(',').map(s => s.trim());
-                    const elementLocator = await locatorManager.getLocator(parserName, keyName);
-
-                    if (!elementLocator) {
-                        throw new Error(`No locator found for key: ${keyName} in parser: ${parserName}`);
-                    }
-
-                    const element = page.locator(elementLocator);
-                    await element.waitFor({ state: 'visible', timeout: 30000 });
-                    const actualValue = await element.textContent();
-
-                    // Log assertion details
-                    await test.info().attach('assertion-details', {
-                        contentType: 'application/json',
-                        body: Buffer.from(JSON.stringify({
-                            expected: step.value,
-                            actual: actualValue?.trim(),
-                            locator: elementLocator,
-                            timestamp: new Date().toISOString()
-                        }, null, 2))
-                    });
-
-                    await expect(actualValue?.trim()).toContain(step.value.trim());
-                } else {
-                    const element = page.locator(step.locator);
-                    await element.waitFor({ state: 'visible', timeout: 30000 });
-                    await expect(element).toContainText(step.value, { timeout: 30000 });
+                // Check if value contains index specification (e.g., "2:Expected Text")
+                if (step.value && step.value.includes(':')) {
+                    const [index, text] = step.value.split(':').map(s => s.trim());
+                    targetIndex = parseInt(index) || 1;
+                    expectedText = text;
                 }
 
-                // Capture success state
-                const screenshot = await page.screenshot();
-                await test.info().attach('assertion-success', {
-                    body: screenshot,
-                    contentType: 'image/png'
+                // Handle parser-based locators (#parserName,key)
+                if (step.locator?.startsWith('#')) {
+                    const [parserName, keyName] = step.locator.substring(1).split(',').map(s => s.trim());
+
+                    if (!parserName || !keyName) {
+                        test.info().annotations.push({
+                            type: 'Error',
+                            description: `❌ Incomplete format
+• Expected: #parserName,key
+• Found: ${step.locator}
+• Missing: ${!parserName ? 'Parser name' : 'Key name'}`
+                        });
+                        return false;
+                    }
+
+                    // Parser validation
+                    try {
+                        elementLocator = await locatorManager.getLocator(parserName, keyName);
+                        if (!elementLocator) {
+                            test.info().annotations.push({
+                                type: 'ParserError',
+                                description: `❌ Parser configuration
+• Parser: ${parserName}.js
+• Key: ${keyName}
+• Issue: Key not found in parser file`
+                            });
+                            return false;
+                        }
+                    } catch (error) {
+                        test.info().annotations.push({
+                            type: 'Parser Error',
+                            description: `❌ Parser error
+• File: ${parserName}.js
+• Issue: Unable to read parser file`
+                        });
+                        return false;
+                    }
+                } else {
+                    // Handle direct locators (xpath, css, etc.)
+                    elementLocator = step.locator;
+                }
+
+                // Element validation
+                try {
+                    const allElements = await page.locator(elementLocator).all();
+                    const count = allElements.length;
+                    
+                    if (count === 0) {
+                        test.info().annotations.push({
+                            type: 'Assertion - DOM Parser Error',
+                            description: `❌ No elements found with locator: ${elementLocator}`
+                        });
+                        return false;
+                    }
+
+                    // Get text content and visibility of all elements
+                    const elementTexts = await Promise.all(
+                        allElements.map(async (el) => {
+                            const text = (await el.textContent() || '').trim();
+                            const isVisible = await el.isVisible();
+                            return { text, isVisible, element: el };
+                        })
+                    );
+
+                    // Filter visible elements
+                    const visibleElements = elementTexts.filter(e => e.isVisible);
+                    
+                    if (targetIndex > visibleElements.length) {
+                        test.info().annotations.push({
+                            type: 'Assertion Error',
+                            description: `❌ Index out of range
+• Locator: ${elementLocator}
+• Requested: Element #${targetIndex}
+• Available: ${visibleElements.length} visible elements
+• Total elements: ${count}
+• Visible texts: ${visibleElements.map(e => `"${e.text}"`).join(', ')}
+• Suggestion: Use index between 1 and ${visibleElements.length}`
+                        });
+                        return false;
+                    }
+
+                    // Get target element
+                    const targetElement = visibleElements[targetIndex - 1];
+                    const actualText = targetElement.text;
+
+                    // Content validation
+                    if (!actualText) {
+                        test.info().annotations.push({
+                            type: 'Assertion Error',
+                            description: `❌ Empty content
+• Locator: ${elementLocator}
+• Index: ${targetIndex}
+• Expected: "${expectedText}"
+• Found: Empty element`
+                        });
+                        return false;
+                    }
+
+                    try {
+                        await expect(actualText).toContain(expectedText);
+                        
+                        // Success case
+                        test.info().annotations.push({
+                            type: 'Assertion Success',
+                            description: `✅ Assertion passed
+• Locator: ${elementLocator}
+• Index: ${targetIndex} of ${visibleElements.length}
+• Expected: "${expectedText}"
+• Found: "${actualText}"`
+                        });
+                        return true;
+                    } catch (error) {
+                        test.info().annotations.push({
+                            type: 'Assertion Error',
+                            description: `❌ Text mismatch
+• Locator: ${elementLocator}
+• Index: ${targetIndex} of ${visibleElements.length}
+• Expected: "${expectedText}"
+• Found: "${actualText}"
+• All visible texts: ${visibleElements.map(e => `"${e.text}"`).join(', ')}`
+                        });
+                        return false;
+                    }
+
+                } catch (error) {
+                    test.info().annotations.push({
+                        type: 'Assertion Error',
+                        description: `❌ Assertion failed
+• Locator: ${elementLocator}
+• Error: ${error.message}`
+                    });
+                    return false;
+                }
+            } catch (error) {
+                test.info().annotations.push({
+                    type: 'Assertion Error',
+                    description: `❌ Assertion failed
+• Locator: ${step.locator}
+• Error: ${error.message}`
                 });
+                return false;
+            }
+        });
+    }
+
+    async handleCartAssert(page, step, test) {
+        return await test.step(`Cart Assert: ${step.value}`, async () => {
+            let keyName, parserName;
+            try {
+                if (page.isClosed()) return;
+
+                if (!step.locator?.startsWith('#')) {
+                    throw new Error(`Invalid assert format: Locator must start with # but got: ${step.locator}`);
+                }
+
+                [parserName, keyName] = step.locator.substring(1).split(',').map(s => s.trim());
+
+                if (!parserName || !keyName) {
+                    throw new Error(`Invalid parser format. Expected #parserName,key but got: ${step.locator}`);
+                }
+
+                // Get the locator from the parser
+                let elementLocator;
+                try {
+                    elementLocator = await locatorManager.getLocator(parserName, keyName);
+                    if (!elementLocator) {
+                        // Combine both error messages into one annotation
+                        test.info().annotations.push({
+                            type: 'Cart Assertion Failed',
+                            description: `❌ Cart assertion failed:
+• Parser: ${parserName}
+• Key: ${keyName}
+• Error: Element not found in parser configuration
+• Locator: ${step.locator}
+• Action: ${step.action}`
+                        });
+                        throw new Error(`Element ${keyName} not found in parser ${parserName}`);
+                    }
+                } catch (error) {
+                    // Single error annotation for parser-related failures
+                    test.info().annotations.push({
+                        type: 'Cart Assertion Failed',
+                        description: `❌ Cart assertion failed:
+• Parser: ${parserName}
+• Key: ${keyName}
+• Error: ${error.message}
+• Locator: ${step.locator}
+• Action: ${step.action}`
+                    });
+                    throw error;
+                }
+
+                // Find all instances of the element
+                const elements = await page.locator(elementLocator).all();
+                if (elements.length === 0) {
+                    test.info().annotations.push({
+                        type: 'Assertion - DOM Parser Error',
+                        description: `❌ No elements found with locator: ${elementLocator}`
+                    });
+                    throw new Error(`No elements found with locator: ${elementLocator}`);
+                }
+
+                // Log if multiple instances found
+                if (elements.length > 1) {
+                    test.info().annotations.push({
+                        type: 'Multiple Elements',
+                        description: `Found ${elements.length} instances of locator: ${elementLocator}`
+                    });
+                }
+
+                // Process each element's text content
+                let foundValue = null;
+                for (const element of elements) {
+                    let text = await element.textContent() || '';
+                    // Clean up the text by removing unwanted characters and HTML
+                    text = text.replace(/[\n\r\t]/g, '')
+                        .replace(/<[^>]*>/g, '')
+                        .trim();
+
+                    if (text) {
+                        // Extract numeric value if present
+                        const numericMatch = text.match(/[-]?\$?[\d,]+\.?\d*/);
+                        if (numericMatch) {
+                            const numericValue = parseFloat(numericMatch[0].replace(/[$,]/g, ''));
+                            foundValue = {
+                                text: text,
+                                numeric: numericValue,
+                                value: text
+                            };
+                            break;
+                        }
+                    }
+                }
+
+                if (!foundValue) {
+                    test.info().annotations.push({
+                        type: 'DOM Parser Data Error',
+                        description: `❌ Could not extract valid value from element with locator: ${elementLocator}`
+                    });
+                    throw new Error(`Could not extract valid value from element with locator: ${elementLocator}`);
+                }
+
+                // Initialize cartValues if needed
+                if (!this.cartValues) {
+                    this.cartValues = {
+                        items: 0,
+                        discounts: 0,
+                        sales_tax: 0,
+                        shipping_amount: 0,
+                        cart_total: 0
+                    };
+                }
+
+                this.cartValues[keyName] = foundValue.numeric;
 
                 test.info().annotations.push({
-                    type: 'Assertion Success',
-                    description: `✅ Successfully assert value of '+${element}+ with value given : "${step.value}"`
+                    type: 'Cart Assert Success',
+                    description: `✅ ${keyName} found from ${parserName}: ${foundValue.numeric} (Found in text: "${foundValue.text}")`
                 });
 
             } catch (error) {
-                // Capture failure state
-                const screenshot = await page.screenshot();
-                await test.info().attach('assertion-failure', {
-                    body: screenshot,
-                    contentType: 'image/png'
-                });
-
-                test.info().annotations.push({
-                    type: 'Assertion Failed',
-                    description: `❌ Assertion failed: ${error.message}`
-                });
-
+                // We don't need to add another annotation here since we already added one above
                 throw error;
             }
         });
@@ -130,69 +348,43 @@ export class ActionHelper {
     async handleInputData(page, step, test) {
         return await test.step(`Input: "${step.value}" into "${step.locator}"`, async () => {
             try {
-                test.info().annotations.push({
-                    type: 'Input Start',
-                    description: `⌨️ Attempting to input: "${step.value}"`
-                });
-
+                // Try with Playwright first
                 const element = await handleElementAction(page, step, 'fill', test);
-                
-                if (element) {
+                if (!element) {
+                    throw new Error(`Input element not found: "${step.locator}"`);
+                }
+
+                try {
                     await element.scrollIntoViewIfNeeded();
+                    await element.fill(step.value);
                     
-                    // Capture before state
-                    await test.info().attach('before-input', {
-                        body: await page.screenshot(),
-                        contentType: 'image/png'
-                    });
-
-                    try {
-                        await element.fill(step.value);
-                    } catch {
-                        // await element.click({ force: true });
-                        await element.clear();
-                        await element.type(step.value, { delay: 50 });
-                    }
-
-                    // Verify input
-                    const inputValue = await element.inputValue();
-                    if (inputValue !== step.value) {
-                        throw new Error('Input verification failed');
-                    }
-
-                    // Capture success state
-                    await test.info().attach('after-input', {
-                        body: await page.screenshot(),
-                        contentType: 'image/png'
-                    });
-
                     test.info().annotations.push({
                         type: 'Input Success',
-                        description: `✅ Successfully input using PlayWright: "${step.value}"`
+                        description: `⚡ Input handled by Playwright: "${step.value}" into "${step.locator}"`
                     });
                     return;
+                } catch (inputError) {
+                    throw new Error(`Element found but input failed: ${inputError.message}`);
                 }
-                throw new Error('Element not found');
 
-            } catch (error) {
+            } catch (actionError) {
                 test.info().annotations.push({
-                    type: 'Input Failed',
-                    description: `❌ Input failed: using PlayWright ${step.locatorType} - ${step.locator}`
+                    type: 'Action Failed',
+                    description: `⚠️ Input attempt failed: on ${step.locator} using Playwright`
                 });
 
-                // Try Zerostep fallback
+                test.info().annotations.push({
+                    type: 'Fallback',
+                    description: `⚠️ Falling back to Zerostep for input: "${step.locator}"`
+                });
+
                 try {
-                    test.info().annotations.push({
-                        type: 'Fallback',
-                        description: '🤖 Attempting Zerostep fallback'
-                    });
+                    await this.handleAiCommand(page, {
+                        ...step,
+                        action: 'type',
+                        additionalContext: `Type "${step.value}" into field labeled or containing text "${step.locator}"`
+                    }, test);
 
-                    await this.handleAiCommand(page, { ...step, action: 'type' }, test);
-
-                    test.info().annotations.push({
-                        type: 'Fallback Success',
-                        description: '✅ Zerostep fallback succeeded'
-                    });
                 } catch (fallbackError) {
                     test.info().annotations.push({
                         type: 'Fallback Failed',
@@ -211,79 +403,64 @@ export class ActionHelper {
                     type: 'Click Start',
                     description: `🖱️ Attempting to click: "${step.locator}"`
                 });
-    
+
                 const element = await handleElementAction(page, step, 'click', test);
-                
-                if (element) {
-                    // Capture before state
-                    await test.info().attach('before-click', {
+                if (!element) {
+                    throw new Error('Element not found');
+                }
+
+                // Capture before state
+                await test.info().attach('before-click', {
+                    body: await page.screenshot(),
+                    contentType: 'image/png'
+                });
+
+                try {
+                    await element.scrollIntoViewIfNeeded();
+                    await page.waitForTimeout(1000);
+
+                    const isVisible = await element.isVisible();
+                    if (!isVisible) {
+                        throw new Error(`Element "${step.locator}" is not visible after scroll`);
+                    }
+
+                    await element.click({ timeout: 5000 });
+
+                    // Capture after state
+                    await page.waitForTimeout(500);
+                    await test.info().attach('after-click', {
                         body: await page.screenshot(),
                         contentType: 'image/png'
                     });
-    
-                    try {
-                        // Scroll and wait for stability
-                        await element.scrollIntoViewIfNeeded();
-                        await page.waitForTimeout(1000);
-    
-                        // Verify visibility after scroll
-                        const isVisible = await element.isVisible();
-                        if (!isVisible) {
-                            throw new Error(`Element "${step.locator}" is not visible after scroll`);
-                        }
-    
-                        // Try click with different strategies
-                        try {
-                            // First attempt: Normal click
-                            await element.click({ timeout: 5000 });
-                        } catch (normalClickError) {
-                            // Second attempt: Force click
-                            try {
-                                await element.click({ force: true, timeout: 5000 });
-                            } catch (forceClickError) {
-                                // Final attempt: Focus and Enter
-                                await element.focus();
-                                await page.waitForTimeout(100);
-                                await element.click({ timeout: 5000 });
-                            }
-                        }
-    
-                        // Capture after state
-                        await page.waitForTimeout(500);
-                        await test.info().attach('after-click', {
-                            body: await page.screenshot(),
-                            contentType: 'image/png'
-                        });
-    
-                        test.info().annotations.push({
-                            type: 'Click Success',
-                            description: `✅ Successfully clicked using PlayWright: "${step.locator}"`
-                        });
-                        return;
-                    } catch (clickError) {
-                        test.info().annotations.push({
-                            type: 'Click Failed',
-                            description: `⚠️ Click attempt failed: ${clickError.message} using PlayWright`
-                        });
-                        throw clickError;
-                    }
+
+                    test.info().annotations.push({
+                        type: 'Click Success',
+                        description: `✅ Successfully clicked using Playwright: "${step.locator}"`
+                    });
+                    return;
+
+                } catch (clickError) {
+                    throw new Error(`Click attempt failed: ${clickError.message}`);
                 }
-                throw new Error('Element not found');
-    
-            } catch (error) {
-                // Try Zerostep fallback
+
+            } catch (actionError) {
+                test.info().annotations.push({
+                    type: 'Action Failed',
+                    description: `⚠️ Click attempt failed: ${actionError.message} using Playwright`
+                });
+
                 test.info().annotations.push({
                     type: 'Fallback',
                     description: `⚠️ Falling back to Zerostep for click: "${step.locator}"`
                 });
-    
+
                 try {
-                    await this.handleAiCommand(page, { ...step, action: 'click' }, test);
+                    await this.handleAiCommand(page, {
+                        ...step,
+                        action: 'click',
+                        additionalContext: `Click on ${step.locatorType} element containing text or label "${step.locator}"`
+                    }, test);
                     
-                    test.info().annotations.push({
-                        type: 'Fallback Success',
-                        description: '✅ Zerostep click succeeded'
-                    });
                 } catch (fallbackError) {
                     test.info().annotations.push({
                         type: 'Fallback Failed',
@@ -298,53 +475,42 @@ export class ActionHelper {
     async handleCheckVisible(page, step, test) {
         return await test.step(`Check visibility: "${step.locator}"`, async () => {
             try {
-                test.info().annotations.push({
-                    type: 'Visibility Check',
-                    description: `👁️ Checking visibility of: "${step.locator}"`
-                });
-
                 const element = await handleElementAction(page, step, 'check', test);
-                
-                if (element) {
-                    await element.waitFor({ state: 'visible', timeout: 30000 });
-                    
-                    // Capture element state
-                    const elementHandle = await element.elementHandle();
-                    if (elementHandle) {
-                        await test.info().attach('element-visible', {
-                            body: await elementHandle.screenshot(),
-                            contentType: 'image/png'
-                        });
-                    }
+                if (!element) {
+                    throw new Error(`Element not found: "${step.locator}"`);
+                }
 
+                try {
+                    await element.waitFor({ state: 'visible', timeout: 5000 });
+                    
                     test.info().annotations.push({
                         type: 'Visibility Success',
-                        description: `✅ Element "${step.locator}" is visible`
+                        description: `⚡ Visibility check handled by Playwright: "${step.locator}"`
                     });
-                    
                     return true;
+                } catch (visibilityError) {
+                    throw new Error(`Element found but not visible: ${visibilityError.message}`);
                 }
-                throw new Error(`Element not found: ${step.locator}`);
 
-            } catch (error) {
+            } catch (actionError) {
                 test.info().annotations.push({
-                    type: 'Visibility Failed',
-                    description: `❌ Visibility check failed: ${error.message}`
+                    type: 'Action Failed',
+                    description: `⚠️ Visibility check failed: ${actionError.message} using Playwright`
                 });
 
-                // Try Zerostep fallback
-                try {
-                    test.info().annotations.push({
-                        type: 'Fallback',
-                        description: '🤖 Attempting Zerostep visibility check'
-                    });
+                test.info().annotations.push({
+                    type: 'Fallback',
+                    description: `⚠️ Falling back to Zerostep for visibility check: "${step.locator}"`
+                });
 
-                    await this.handleAiCommand(page, { ...step, action: 'waitfortext' }, test);
-                    
-                    test.info().annotations.push({
-                        type: 'Fallback Success',
-                        description: '✅ Zerostep visibility check succeeded'
-                    });
+                try {
+                    await this.handleAiCommand(page, {
+                        ...step,
+                        action: 'waitfortext',
+                        additionalContext: `Wait for element containing text "${step.locator}" to be visible`
+                    }, test);
+
+                    return true;
                 } catch (fallbackError) {
                     test.info().annotations.push({
                         type: 'Fallback Failed',
@@ -484,193 +650,120 @@ export class ActionHelper {
                     description: `🤖 Starting Zerostep command: ${step.action}`
                 });
 
-                // Log command details
-                await test.info().attach('command-details', {
-                    contentType: 'application/json',
-                    body: Buffer.from(JSON.stringify({
-                        action: step.action,
-                        locator: step.locator,
-                        value: step.value,
-                        command: aiCommand,
-                        timestamp: new Date().toISOString()
-                    }, null, 2))
-                });
-
-                // Capture before state
-                await test.info().attach('before-ai-command', {
-                    body: await page.screenshot(),
-                    contentType: 'image/png'
-                });
-
                 // Execute AI command
                 await ai(aiCommand, { page, test });
                 const executionTime = Date.now() - startTime;
 
-                // Capture after state
-                await page.waitForTimeout(500);
-                await test.info().attach('after-ai-command', {
-                    body: await page.screenshot(),
-                    contentType: 'image/png'
-                });
+                // Add both annotations to ensure proper counting
+                test.info().annotations.push(
+                    {
+                        type: 'Zerostep Success',  // Add this explicit type
+                        description: `✅ Action completed using Zerostep`
+                    }
+                );
 
-                test.info().annotations.push({
-                    type: 'AI Command Success',
-                    description: `✅ Zerostep command completed in ${executionTime}ms`
-                });
+                return true;
 
             } catch (error) {
                 test.info().annotations.push({
                     type: 'AI Command Failed',
-                    description: `❌ Zerostep command failed: ${error.message}`
+                    description: `❌ Zerostep command failed: ${step.locator}`
                 });
-
-                await test.info().attach('error-details', {
-                    contentType: 'application/json',
-                    body: Buffer.from(JSON.stringify({
-                        error: error.message,
-                        stack: error.stack,
-                        timestamp: new Date().toISOString()
-                    }, null, 2))
-                });
-
                 throw error;
             }
         });
     }
 
     async handleScroll(page, step, test) {
-        return await test.step(`Scroll and Click: "${step.locator}"`, async () => {
+        return await test.step(`Scroll: "${step.locator}"`, async () => {
+            const suffix = getSuffix(step.value);
+            const description = suffix ? 
+                `🔍 Attempting to scroll to ${suffix} "${step.locator}"` : 
+                `🔍 Attempting to scroll to "${step.locator}"`;
+
+            test.info().annotations.push({
+                type: 'Scroll Start',
+                description: description
+            });
+
             try {
-                test.info().annotations.push({
-                    type: 'Scroll Start',
-                    description: `🔍 Attempting to scroll to and click: "${step.locator}"`
-                });
-    
-                // Get all matching elements using handleElementAction
                 const element = await handleElementAction(page, step, 'scroll', test);
                 
-                if (element) {
-                    // Capture before state
-                    await test.info().attach('before-scroll', {
-                        body: await page.screenshot(),
-                        contentType: 'image/png'
-                    });
-    
-                    try {
-                        // Get all elements matching the locator
-                        const allElements = await page.locator(`${step.locatorType}:has-text("${step.locator}")`).all();
-                        const count = allElements.length;
-                        
-                        test.info().annotations.push({
-                            type: 'Elements Found',
-                            description: `📍 Found ${count} matching elements`
-                        });
-    
-                        // Get target index (default to 0 if not specified)
-                        const targetIndex = step.value ? (parseInt(step.value) - 1) : 0;
-    
-                        if (count === 0) {
-                            throw new Error(`No elements found matching "${step.locator}"`);
-                        }
-    
-                        if (targetIndex >= count) {
-                            throw new Error(`Requested element ${targetIndex + 1} but only found ${count} elements`);
-                        }
-    
-                        const targetElement = allElements[targetIndex];
-    
-                        // Try different scroll strategies
-                        try {
-                            // First attempt: scrollIntoViewIfNeeded
-                            await targetElement.scrollIntoViewIfNeeded();
-                            await page.waitForTimeout(1000);
-                        } catch (scrollError) {
-                            // Second attempt: evaluate scroll
-                            await page.evaluate(element => {
-                                element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                            }, targetElement);
-                            await page.waitForTimeout(1000);
-                        }
-    
-                        // Verify element is in viewport
-                        const isVisible = await targetElement.isVisible();
-                        if (!isVisible) {
-                            throw new Error('Element not visible after scroll');
-                        }
-    
-                        // Add click action after successful scroll
-                        try {
-                            // Wait for element to be visible and stable
-                            await targetElement.waitFor({ state: 'visible', timeout: 5000 });
-                            // Add a small delay to ensure element is fully rendered
-                            await page.waitForTimeout(500);
-                            
-                            // Attempt to click with navigation handling
-                            const [newPage] = await Promise.all([
-                                // Listen for new pages
-                                page.context().waitForEvent('page', { timeout: 10000 }).catch(() => null),
-                                // Click the element
-                                targetElement.click({ timeout: 5000, force: false })
-                            ]);
-                        
-                            // If a new page was opened, switch to it
-                            if (newPage) {
-                                await newPage.waitForLoadState('domcontentloaded', { timeout: 30000 });
-                                test.info().annotations.push({
-                                    type: 'Navigation',
-                                    description: '📄 Switched to new page after click'
-                                });
-                                return newPage;
-                            }
-                        
-                            test.info().annotations.push({
-                                type: 'Click Success',
-                                description: '✅ Successfully clicked element after scroll'
-                            });
-                        } catch (clickError) {
-                            throw new Error(`Failed to click after scroll: ${clickError.message}`);
-                        }
-    
-                        // Capture after state
-                        await test.info().attach('after-scroll-and-click', {
-                            body: await page.screenshot(),
-                            contentType: 'image/png'
-                        });
-    
-                        test.info().annotations.push({
-                            type: 'Scroll and Click Success',
-                            description: `✅ Successfully scrolled to and clicked element ${targetIndex + 1} of ${count} using PlayWright`
-                        });
-                        return;
-    
-                    } catch (actionError) {
-                        test.info().annotations.push({
-                            type: 'Action Failed',
-                            description: `⚠️ Scroll and click attempt failed: ${actionError.message} using PlayWright`
-                        });
-                        throw actionError;
-                    }
+                if (!element) {
+                    throw new Error('Element not found');
                 }
-                throw new Error('Element not found');
-    
-            } catch (error) {
-                // Try Zerostep fallback
+
+                // Capture before state
+                await test.info().attach('before-scroll', {
+                    body: await page.screenshot(),
+                    contentType: 'image/png'
+                });
+
+                // Get all elements matching the locator
+                const allElements = await page.locator(`${step.locatorType}:has-text("${step.locator}")`).all();
+                const count = allElements.length;
+                
+                test.info().annotations.push({
+                    type: 'Elements Found',
+                    description: `📍 Found ${count} matching elements`
+                });
+
+                const targetIndex = step.value ? (parseInt(step.value) - 1) : 0;
+
+                if (count === 0) {
+                    throw new Error(`No elements found matching "${step.locator}"`);
+                }
+
+                if (targetIndex >= count) {
+                    throw new Error(`Requested ${suffix} element but only found ${count} elements`);
+                }
+
+                const targetElement = allElements[targetIndex];
+
+                // Single scroll strategy using Playwright
+                await targetElement.scrollIntoViewIfNeeded();
+                await page.waitForTimeout(1000);
+
+                // Verify element is in viewport
+                const isVisible = await targetElement.isVisible();
+                if (!isVisible) {
+                    throw new Error(`${suffix} element not visible after scroll`);
+                }
+
+                // Capture after state
+                await test.info().attach('after-scroll', {
+                    body: await page.screenshot(),
+                    contentType: 'image/png'
+                });
+
+                test.info().annotations.push({
+                    type: 'Scroll Success',
+                    description: `✅ Successfully scrolled to ${suffix} element using Playwright`
+                });
+                return;
+
+            } catch (actionError) {
+                test.info().annotations.push({
+                    type: 'Action Failed',
+                    description: `⚠️ Scroll attempt failed: ${actionError.message} using Playwright`
+                });
+
                 test.info().annotations.push({
                     type: 'Fallback',
-                    description: `⚠️ Falling back to Zerostep for scroll and click: "${step.locator}"`
+                    description: `⚠️ Falling back to Zerostep for scroll: "${step.locator}"`
                 });
-    
+
                 try {
-                    await this.handleAiCommand(page, { ...step, action: 'scroll-and-click' }, test);
+                    await this.handleAiCommand(page, {
+                        ...step,
+                        action: 'scroll',
+                        additionalContext: `Scroll to the ${getSuffix(step.value) || 'first'} element containing text "${step.locator}"`
+                    }, test);
                     
-                    test.info().annotations.push({
-                        type: 'Fallback Success',
-                        description: '✅ Zerostep scroll and click succeeded'
-                    });
                 } catch (fallbackError) {
                     test.info().annotations.push({
                         type: 'Fallback Failed',
-                        description: `❌ Zerostep scroll and click failed: ${fallbackError.message}`
+                        description: `❌ Zerostep scroll failed: ${fallbackError.message}`
                     });
                     throw fallbackError;
                 }
@@ -678,4 +771,118 @@ export class ActionHelper {
         });
     }
 
+    async handleKeyboardAction(page, step, test) {
+        return await test.step(`Keyboard Action: ${step.value}`, async () => {
+            try {
+                const keyName = step.value.toUpperCase();
+                
+                // Try with Playwright first
+                try {
+                    switch (keyName) {
+                        case 'ENTER':
+                            await page.keyboard.press('Enter');
+                            break;
+                        case 'TAB':
+                            await page.keyboard.press('Tab');
+                            break;
+                        case 'ESCAPE':
+                            await page.keyboard.press('Escape');
+                            break;
+                        case 'ARROWUP':
+                            await page.keyboard.press('ArrowUp');
+                            break;
+                        case 'ARROWDOWN':
+                            await page.keyboard.press('ArrowDown');
+                            break;
+                        case 'ARROWLEFT':
+                            await page.keyboard.press('ArrowLeft');
+                            break;
+                        case 'ARROWRIGHT':
+                            await page.keyboard.press('ArrowRight');
+                            break;
+                        case 'BACKSPACE':
+                            await page.keyboard.press('Backspace');
+                            break;
+                        case 'DELETE':
+                            await page.keyboard.press('Delete');
+                            break;
+                        default:
+                            throw new Error(`Unsupported key action: ${keyName}`);
+                    }
+
+                    const successMessage = `⚡ Keyboard action handled by Playwright: "${keyName}"`;
+                    console.log(successMessage);
+                    test.info().annotations.push({
+                        type: 'Keyboard Action Success',
+                        description: successMessage
+                    });
+                    return;
+                } catch (error) {
+                    const playwrightError = `❌ Playwright keyboard action failed: ${error.message}`;
+                    console.log(playwrightError);
+                    test.info().annotations.push({
+                        type: 'Keyboard Action Failed',
+                        description: playwrightError
+                    });
+
+                    // Fallback to Zerostep
+                    const zerostepMessage = `🤖 Attempting keyboard action with Zerostep: "${keyName}"`;
+                    console.log(zerostepMessage);
+                    test.info().annotations.push({
+                        type: 'Keyboard Fallback',
+                        description: zerostepMessage
+                    });
+
+                    try {
+                        await this.handleAiCommand(page, {
+                            ...step,
+                            action: 'press',
+                            additionalContext: `Press keyboard key "${keyName}"`
+                        }, test);
+
+                        const successMessage = `✅ Keyboard action handled by Zerostep: "${keyName}"`;
+                        console.log(successMessage);
+                        test.info().annotations.push({
+                            type: 'Keyboard Action Success',
+                            description: successMessage
+                        });
+                        return;
+                    } catch (zerostepError) {
+                        const finalError = `❌ Keyboard action failed with both Playwright and Zerostep: "${keyName}"`;
+                        console.log(finalError);
+                        test.info().annotations.push({
+                            type: 'Keyboard Action Failed',
+                            description: finalError
+                        });
+                        throw new Error(finalError);
+                    }
+                }
+            } catch (error) {
+                test.info().annotations.push({
+                    type: 'Action Failed',
+                    description: `⚠️ Keyboard action failed: ${error.message} using Playwright`
+                });
+
+                test.info().annotations.push({
+                    type: 'Fallback',
+                    description: `⚠️ Falling back to Zerostep for keyboard action: "${step.value}"`
+                });
+
+                try {
+                    await this.handleAiCommand(page, {
+                        ...step,
+                        action: 'press',
+                        additionalContext: `Press keyboard key "${step.value}"`
+                    }, test);
+
+                } catch (fallbackError) {
+                    test.info().annotations.push({
+                        type: 'Fallback Failed',
+                        description: `❌ Zerostep keyboard action failed: ${fallbackError.message}`
+                    });
+                    throw fallbackError;
+                }
+            }
+        });
+    }
 }

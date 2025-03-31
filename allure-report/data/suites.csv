@@ -1,0 +1,2 @@
+"DESCRIPTION","DURATION IN MS","NAME","PARENT SUITE","START TIME","STATUS","STOP TIME","SUB SUITE","SUITE","TEST CLASS","TEST METHOD"
+"","54757","WALMART - TC001","","Mon Mar 31 11:48:34 IST 2025","failed","Mon Mar 31 11:49:29 IST 2025","WALMART E2E Test Suite","interactions\interactions.spec.js","",""

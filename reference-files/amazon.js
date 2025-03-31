@@ -664,7 +664,7 @@ function firstNameMobile2Parser(node){
 }
 
 function lastNameMobile2Parser(node){
-  const lastName=node.querySelector('.a-section').querySelector('#deliver-to-customer-text').textContent.trim().split('Delivering to ')[1];
+  const lastName=node.querySelector('.b-section').querySelector('#deliver-to-customer-bbbb').textContent.trim().split('Delivering to ')[1];
   return lastNameExtractor(lastName);
 }
 

@@ -1,0 +1,46 @@
+WALMART Test Case TC001 failed: Error: No elements found with locator: #delivery-card-header div > div
+    at C:\Users\VaibhavGangrade\OneDrive - TalentKloud\Documents\Codvo.ai\MyProject\QATaskAutomation\utils\actionHelper.js:280:27
+    at C:\Users\VaibhavGangrade\OneDrive - TalentKloud\Documents\Codvo.ai\MyProject\QATaskAutomation\node_modules\playwright\lib\common\testType.js:236:24
+    at TestTypeImpl._step (C:\Users\VaibhavGangrade\OneDrive - TalentKloud\Documents\Codvo.ai\MyProject\QATaskAutomation\node_modules\playwright\lib\common\testType.js:234:12)
+    at ActionHelper.handleCartAssert (C:\Users\VaibhavGangrade\OneDrive - TalentKloud\Documents\Codvo.ai\MyProject\QATaskAutomation\utils\actionHelper.js:227:16)
+    at C:\Users\VaibhavGangrade\OneDrive - TalentKloud\Documents\Codvo.ai\MyProject\QATaskAutomation\tests\interactions\interactions.spec.js:252:41
+    at C:\Users\VaibhavGangrade\OneDrive - TalentKloud\Documents\Codvo.ai\MyProject\QATaskAutomation\node_modules\playwright\lib\common\testType.js:236:24
+    at TestTypeImpl._step (C:\Users\VaibhavGangrade\OneDrive - TalentKloud\Documents\Codvo.ai\MyProject\QATaskAutomation\node_modules\playwright\lib\common\testType.js:234:12)
+    at C:\Users\VaibhavGangrade\OneDrive - TalentKloud\Documents\Codvo.ai\MyProject\QATaskAutomation\tests\interactions\interactions.spec.js:222:21
+    at C:\Users\VaibhavGangrade\OneDrive - TalentKloud\Documents\Codvo.ai\MyProject\QATaskAutomation\node_modules\playwright\lib\worker\workerMain.js:339:9
+    at C:\Users\VaibhavGangrade\OneDrive - TalentKloud\Documents\Codvo.ai\MyProject\QATaskAutomation\node_modules\playwright\lib\worker\testInfo.js:286:11
+    at TimeoutManager.withRunnable (C:\Users\VaibhavGangrade\OneDrive - TalentKloud\Documents\Codvo.ai\MyProject\QATaskAutomation\node_modules\playwright\lib\worker\timeoutManager.js:64:14)
+    at TestInfoImpl._runAsStage (C:\Users\VaibhavGangrade\OneDrive - TalentKloud\Documents\Codvo.ai\MyProject\QATaskAutomation\node_modules\playwright\lib\worker\testInfo.js:284:7)
+    at C:\Users\VaibhavGangrade\OneDrive - TalentKloud\Documents\Codvo.ai\MyProject\QATaskAutomation\node_modules\playwright\lib\worker\workerMain.js:331:7
+    at C:\Users\VaibhavGangrade\OneDrive - TalentKloud\Documents\Codvo.ai\MyProject\QATaskAutomation\node_modules\playwright\lib\worker\testInfo.js:286:11
+    at TimeoutManager.withRunnable (C:\Users\VaibhavGangrade\OneDrive - TalentKloud\Documents\Codvo.ai\MyProject\QATaskAutomation\node_modules\playwright\lib\worker\timeoutManager.js:52:27)
+    at TestInfoImpl._runAsStage (C:\Users\VaibhavGangrade\OneDrive - TalentKloud\Documents\Codvo.ai\MyProject\QATaskAutomation\node_modules\playwright\lib\worker\testInfo.js:284:7)
+    at WorkerMain._runTest (C:\Users\VaibhavGangrade\OneDrive - TalentKloud\Documents\Codvo.ai\MyProject\QATaskAutomation\node_modules\playwright\lib\worker\workerMain.js:281:5)
+    at WorkerMain.runTestGroup (C:\Users\VaibhavGangrade\OneDrive - TalentKloud\Documents\Codvo.ai\MyProject\QATaskAutomation\node_modules\playwright\lib\worker\workerMain.js:205:11)
+    at process.<anonymous> (C:\Users\VaibhavGangrade\OneDrive - TalentKloud\Documents\Codvo.ai\MyProject\QATaskAutomation\node_modules\playwright\lib\common\process.js:95:22) {
+  [Symbol(step)]: {
+    stepId: 'test.step@291',
+    category: 'test.step',
+    title: 'Cart Assert: Model Alert Popup',
+    location: {
+      file: 'C:\\Users\\VaibhavGangrade\\OneDrive - TalentKloud\\Documents\\Codvo.ai\\MyProject\\QATaskAutomation\\utils\\actionHelper.js',
+      line: 227,
+      column: 27,
+      function: 'ActionHelper.handleCartAssert'
+    },
+    box: undefined,
+    boxedStack: undefined,
+    steps: [ [Object] ],
+    complete: [Function: complete],
+    endWallTime: 1743401967390,
+    error: {
+      message: 'Error: No elements found with locator: #delivery-card-header div > div',
+      stack: 'Error: No elements found with locator: #delivery-card-header div > div\n' +
+        '    at C:\\Users\\VaibhavGangrade\\OneDrive - TalentKloud\\Documents\\Codvo.ai\\MyProject\\QATaskAutomation\\utils\\actionHelper.js:280:27\n' +
+        '    at ActionHelper.handleCartAssert (C:\\Users\\VaibhavGangrade\\OneDrive - TalentKloud\\Documents\\Codvo.ai\\MyProject\\QATaskAutomation\\utils\\actionHelper.js:227:16)\n' +
+        '    at C:\\Users\\VaibhavGangrade\\OneDrive - TalentKloud\\Documents\\Codvo.ai\\MyProject\\QATaskAutomation\\tests\\interactions\\interactions.spec.js:252:41\n' +
+        '    at C:\\Users\\VaibhavGangrade\\OneDrive - TalentKloud\\Documents\\Codvo.ai\\MyProject\\QATaskAutomation\\tests\\interactions\\interactions.spec.js:222:21',
+      cause: undefined
+    }
+  }
+}

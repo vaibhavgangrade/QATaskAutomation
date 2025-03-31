@@ -6,10 +6,10 @@ module.exports = defineConfig({
     retries: 0,
     workers: 1,
     fullyParallel: false,
-    timeout: 180000,
+    timeout: 120000,
     
     expect: {
-        timeout: 10000
+        timeout: 5000
     },
 
     reporter: [
