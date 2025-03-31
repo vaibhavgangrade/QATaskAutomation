@@ -1,0 +1,8 @@
+{
+  "retailer": "fakeretailer",
+  "testId": "FAKERETAILER - TC001",
+  "status": "failed",
+  "error": "Error: No elements found with locator: #delivery-card-header div > div",
+  "duration": 53976,
+  "screenshotCaptured": true
+}

@@ -1,0 +1,11 @@
+{
+  "retailer": "FAKERETAILER",
+  "duration": "57s",
+  "steps": {
+    "total": 10,
+    "playwright": 7,
+    "zerostep": 1,
+    "failed": 2
+  },
+  "success_rate": "80%"
+}

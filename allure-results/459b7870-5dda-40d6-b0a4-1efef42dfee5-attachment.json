@@ -1,0 +1,11 @@
+{
+  "retailer": "AMAZON",
+  "duration": "164s",
+  "steps": {
+    "total": 22,
+    "playwright": 15,
+    "zerostep": 1,
+    "failed": 1
+  },
+  "success_rate": "73%"
+}

@@ -9,7 +9,7 @@ export const retailerConfig = {
         excelFile: 'bluenilemaster.xlsx',
         jsfile: 'bluenile.js'
     },
-    walmart: {
+    fakeretailer: {
         domain: 'selectorshub.com',
         excelFile: 'test.xlsx',
         jsfile: 'walmart.js'

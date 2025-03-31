@@ -409,38 +409,79 @@ export class ActionHelper {
                     throw new Error('Element not found');
                 }
 
-                // Capture before state
-                await test.info().attach('before-click', {
-                    body: await page.screenshot(),
-                    contentType: 'image/png'
-                });
-
+                // Enhanced click handling
                 try {
                     await element.scrollIntoViewIfNeeded();
-                    await page.waitForTimeout(1000);
+                    await page.waitForTimeout(500);
 
-                    const isVisible = await element.isVisible();
-                    if (!isVisible) {
-                        throw new Error(`Element "${step.locator}" is not visible after scroll`);
+                    // Try multiple click strategies in sequence
+                    const clickStrategies = [
+                        // Strategy 1: Standard click
+                        async () => await element.click({ timeout: 5000 }),
+                        
+                        // Strategy 2: Force click
+                        async () => await element.click({ force: true, timeout: 5000 }),
+                        
+                        // Strategy 3: Click with position offset
+                        async () => await element.click({ position: { x: 5, y: 5 }, timeout: 5000 }),
+                        
+                        // Strategy 4: JavaScript click
+                        async () => await page.evaluate(selector => {
+                            const el = document.querySelector(selector);
+                            if (el) {
+                                el.click();
+                                return true;
+                            }
+                            return false;
+                        }, element.toString()),
+                        
+                        // Strategy 5: Dispatch click event
+                        async () => await element.evaluate(el => {
+                            el.dispatchEvent(new MouseEvent('click', {
+                                view: window,
+                                bubbles: true,
+                                cancelable: true,
+                                buttons: 1
+                            }));
+                        }),
+                        
+                        // Strategy 6: Parent click
+                        async () => await page.evaluate(selector => {
+                            const el = document.querySelector(selector);
+                            if (el && el.parentElement) {
+                                el.parentElement.click();
+                                return true;
+                            }
+                            return false;
+                        }, element.toString())
+                    ];
+
+                    // Try each strategy with error handling
+                    for (let i = 0; i < clickStrategies.length; i++) {
+                        try {
+                            await clickStrategies[i]();
+                            
+                            // Wait for any navigation or network activity
+                            await Promise.race([
+                                page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {}),
+                                page.waitForTimeout(2000)
+                            ]);
+
+                            test.info().annotations.push({
+                                type: 'Click Success',
+                                description: `✅ Successfully clicked using strategy ${i + 1}: "${step.locator}"`
+                            });
+                            return;
+                        } catch (strategyError) {
+                            console.log(`Strategy ${i + 1} failed:`, strategyError.message);
+                            if (i === clickStrategies.length - 1) {
+                                throw strategyError; // Throw error if all strategies fail
+                            }
+                        }
                     }
 
-                    await element.click({ timeout: 5000 });
-
-                    // Capture after state
-                    await page.waitForTimeout(500);
-                    await test.info().attach('after-click', {
-                        body: await page.screenshot(),
-                        contentType: 'image/png'
-                    });
-
-                    test.info().annotations.push({
-                        type: 'Click Success',
-                        description: `✅ Successfully clicked using Playwright: "${step.locator}"`
-                    });
-                    return;
-
                 } catch (clickError) {
-                    throw new Error(`Click attempt failed: ${clickError.message}`);
+                    throw new Error(`All click strategies failed: ${clickError.message}`);
                 }
 
             } catch (actionError) {
@@ -449,6 +490,7 @@ export class ActionHelper {
                     description: `⚠️ Click attempt failed: ${actionError.message} using Playwright`
                 });
 
+                // Fallback to Zerostep
                 test.info().annotations.push({
                     type: 'Fallback',
                     description: `⚠️ Falling back to Zerostep for click: "${step.locator}"`

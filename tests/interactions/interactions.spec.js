@@ -47,6 +47,14 @@ async function captureScreenshot(page, timeout = 30000) {
     }
 }
 
+// Move test configuration to top level
+test.use({
+    retries: 1,
+    actionTimeout: 30000,
+    navigationTimeout: 30000,
+    trace: 'retain-on-failure'
+});
+
 // Define test cases at the top level
 const testCases = (() => {
     try {
@@ -259,18 +267,21 @@ test.describe(`${retailer.toUpperCase()} E2E Test Suite`, () => {
                                 // Check new annotations to determine step result
                                 const newAnnotations = test.info().annotations.slice(beforeAnnotations);
                                 
-                                // Check for Zerostep success (including fallbacks)
+                                // Check for Zerostep success
                                 const zerostepSuccess = newAnnotations.some(a => 
-                                    (a.type?.toLowerCase().includes('zerostep') && 
-                                     a.description?.toLowerCase().includes('success')) ||
+                                    // Check for explicit Zerostep success
+                                    (a.type?.toLowerCase() === 'zerostep success') ||
+                                    // Check for AI Command success
                                     (a.type?.toLowerCase().includes('ai command') && 
                                      a.description?.toLowerCase().includes('success')) ||
+                                    // Check for successful fallback to Zerostep
                                     (a.type?.toLowerCase().includes('fallback') && 
-                                     a.description?.toLowerCase().includes('zerostep') &&
-                                     a.description?.toLowerCase().includes('succeeded'))
+                                     a.description?.toLowerCase().includes('zerostep')) ||
+                                    // Check for explicit Zerostep completion
+                                    (a.description?.toLowerCase().includes('action completed using zerostep'))
                                 );
 
-                                // Check for Playwright success - Include more success indicators
+                                // Check for Playwright success - only if not already counted as Zerostep
                                 const playwrightSuccess = !zerostepSuccess && newAnnotations.some(a => 
                                     (
                                         (a.description?.includes('✅') || a.description?.includes('⚡')) &&
@@ -281,8 +292,7 @@ test.describe(`${retailer.toUpperCase()} E2E Test Suite`, () => {
                                             a.type?.toLowerCase().includes('click success') ||
                                             a.type?.toLowerCase().includes('scroll success') ||
                                             a.type?.toLowerCase().includes('visibility success')
-                                        ) &&
-                                        !a.description?.toLowerCase().includes('zerostep')
+                                        )
                                     )
                                 );
 

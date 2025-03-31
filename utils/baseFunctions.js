@@ -39,106 +39,107 @@ async function getCommonLocators(page, step) {
 
     console.log(`🔍 Searching for ${locatorType} with text/attribute: "${searchText}"`);
 
-    // Universal ecommerce patterns
-    const universalEcommercePatterns = [
-        // Generic Product Related
-        `${locatorType}[data-product-id*="${searchText}"]`,
-        `${locatorType}[data-sku*="${searchText}"]`,
-        `${locatorType}[data-item*="${searchText}"]`,
-
-        // Common Shopping Elements
-        `${locatorType}[data-cart*="${searchText}"]`,
-        `${locatorType}[data-checkout*="${searchText}"]`,
-        `${locatorType}[data-basket*="${searchText}"]`,
-
-        // Common Header/Navigation
-        `${locatorType}[data-search*="${searchText}"]`,
-        `${locatorType}[data-menu*="${searchText}"]`,
-        `${locatorType}[data-nav*="${searchText}"]`,
-
-        // Common Footer
-        `${locatorType}[data-footer*="${searchText}"]`,
-        `${locatorType}[data-section*="${searchText}"]`,
-
-        // Common Button/Input Patterns
-        `${locatorType}[name*="search"][value*="${searchText}"]`,
-        `${locatorType}[name*="cart"][value*="${searchText}"]`,
-        `${locatorType}[name*="checkout"][value*="${searchText}"]`,
-
-        // Price Related
-        `${locatorType}[data-price*="${searchText}"]`,
-        `${locatorType}[data-amount*="${searchText}"]`,
-        `${locatorType}[data-currency*="${searchText}"]`,
-
-        // Common Form Elements
-        `${locatorType}[data-form*="${searchText}"]`,
-        `${locatorType}[data-input*="${searchText}"]`,
-        `${locatorType}[data-field*="${searchText}"]`,
-
-        // Common Authentication
-        `${locatorType}[data-login*="${searchText}"]`,
-        `${locatorType}[data-account*="${searchText}"]`,
-        `${locatorType}[data-auth*="${searchText}"]`,
-
-        // Common UI Elements
-        `${locatorType}[data-modal*="${searchText}"]`,
-        `${locatorType}[data-popup*="${searchText}"]`,
-        `${locatorType}[data-dialog*="${searchText}"]`,
-
-        // Common Content
-        `${locatorType}[data-content*="${searchText}"]`,
-        `${locatorType}[data-text*="${searchText}"]`,
-        `${locatorType}[data-label*="${searchText}"]`,
-
-        // Generic Attribute Combinations
-        `${locatorType}[id*="${searchText.toLowerCase()}"]`,
-        `${locatorType}[class*="${searchText.toLowerCase()}"]`,
-        `${locatorType}[name*="${searchText.toLowerCase()}"]`,
-
-        // Text Content Variations
-        `${locatorType}:has-text("${searchText}")`,
-        `${locatorType}:text-is("${searchText}")`,
-        `${locatorType}:contains("${searchText}")`,
-
-        // Common Testing Attributes
-        `${locatorType}[data-test*="${searchText}"]`,
-        `${locatorType}[data-testid*="${searchText}"]`,
-        `${locatorType}[data-qa*="${searchText}"]`,
-        `${locatorType}[data-cy*="${searchText}"]`,
-
-        // Accessibility
-        `${locatorType}[aria-label*="${searchText}"]`,
-        `${locatorType}[title*="${searchText}"]`,
-        `${locatorType}[alt*="${searchText}"]`,
-
-        // Dynamic Content
-        `${locatorType}[data-dynamic*="${searchText}"]`,
-        `${locatorType}[data-lazy*="${searchText}"]`,
-        `${locatorType}[data-load*="${searchText}"]`,
-
-        // Value Based
-        `${locatorType}[value*="${searchText}"]`,
-        `${locatorType}[placeholder*="${searchText}"]`,
-
-        // Nested Elements
-        `${locatorType}:has(> *:text-is("${searchText}"))`,
-        `${locatorType}:has(span:text-is("${searchText}"))`,
-        `${locatorType}:has(div:text-is("${searchText}"))`,
-
-        // Form Labels
-        `label:has-text("${searchText}") + ${locatorType}`,
-        `label[for*="${searchText}"] + ${locatorType}`,
-
-        // Common Interactive Elements
-        `${locatorType}[role="button"][aria-label*="${searchText}"]`,
-        `${locatorType}[role="link"][aria-label*="${searchText}"]`,
-        `${locatorType}[role="tab"][aria-label*="${searchText}"]`,
-
-        // Common State Attributes
-        `${locatorType}[data-state*="${searchText}"]`,
-        `${locatorType}[data-status*="${searchText}"]`,
-        `${locatorType}[data-condition*="${searchText}"]`
-    ]
+        // Universal ecommerce patterns
+        const universalEcommercePatterns = [
+            // Generic Product Related
+            `${locatorType}[data-product-id*="${searchText}"]`,
+            `${locatorType}[data-sku*="${searchText}"]`,
+            `${locatorType}[data-item*="${searchText}"]`,
+    
+            // Common Shopping Elements
+            `${locatorType}[data-cart*="${searchText}"]`,
+            `${locatorType}[data-checkout*="${searchText}"]`,
+            `${locatorType}[data-basket*="${searchText}"]`,
+    
+            // Common Header/Navigation
+            `${locatorType}[data-search*="${searchText}"]`,
+            `${locatorType}[data-menu*="${searchText}"]`,
+            `${locatorType}[data-nav*="${searchText}"]`,
+    
+            // Common Footer
+            `${locatorType}[data-footer*="${searchText}"]`,
+            `${locatorType}[data-section*="${searchText}"]`,
+    
+            // Common Button/Input Patterns
+            `${locatorType}[name*="search"][value*="${searchText}"]`,
+            `${locatorType}[name*="cart"][value*="${searchText}"]`,
+            `${locatorType}[name*="checkout"][value*="${searchText}"]`,
+    
+            // Price Related
+            `${locatorType}[data-price*="${searchText}"]`,
+            `${locatorType}[data-amount*="${searchText}"]`,
+            `${locatorType}[data-currency*="${searchText}"]`,
+    
+            // Common Form Elements
+            `${locatorType}[data-form*="${searchText}"]`,
+            `${locatorType}[data-input*="${searchText}"]`,
+            `${locatorType}[data-field*="${searchText}"]`,
+    
+            // Common Authentication
+            `${locatorType}[data-login*="${searchText}"]`,
+            `${locatorType}[data-account*="${searchText}"]`,
+            `${locatorType}[data-auth*="${searchText}"]`,
+    
+            // Common UI Elements
+            `${locatorType}[data-modal*="${searchText}"]`,
+            `${locatorType}[data-popup*="${searchText}"]`,
+            `${locatorType}[data-dialog*="${searchText}"]`,
+    
+            // Common Content
+            `${locatorType}[data-content*="${searchText}"]`,
+            `${locatorType}[data-text*="${searchText}"]`,
+            `${locatorType}[data-label*="${searchText}"]`,
+    
+            // Generic Attribute Combinations
+            `${locatorType}[id*="${searchText.toLowerCase()}"]`,
+            `${locatorType}[class*="${searchText.toLowerCase()}"]`,
+            `${locatorType}[name*="${searchText.toLowerCase()}"]`,
+    
+            // Text Content Variations
+            `${locatorType}:has-text("${searchText}")`,
+            `${locatorType}:text-is("${searchText}")`,
+            `${locatorType}:contains("${searchText}")`,
+    
+            // Common Testing Attributes
+            `${locatorType}[data-test*="${searchText}"]`,
+            `${locatorType}[data-testid*="${searchText}"]`,
+            `${locatorType}[data-qa*="${searchText}"]`,
+            `${locatorType}[data-cy*="${searchText}"]`,
+    
+            // Accessibility
+            `${locatorType}[aria-label*="${searchText}"]`,
+            `${locatorType}[title*="${searchText}"]`,
+            `${locatorType}[alt*="${searchText}"]`,
+    
+            // Dynamic Content
+            `${locatorType}[data-dynamic*="${searchText}"]`,
+            `${locatorType}[data-lazy*="${searchText}"]`,
+            `${locatorType}[data-load*="${searchText}"]`,
+    
+            // Value Based
+            `${locatorType}[value*="${searchText}"]`,
+            `${locatorType}[placeholder*="${searchText}"]`,
+    
+            // Nested Elements
+            `${locatorType}:has(> *:text-is("${searchText}"))`,
+            `${locatorType}:has(span:text-is("${searchText}"))`,
+            `${locatorType}:has(div:text-is("${searchText}"))`,
+    
+            // Form Labels
+            `label:has-text("${searchText}") + ${locatorType}`,
+            `label[for*="${searchText}"] + ${locatorType}`,
+    
+            // Common Interactive Elements
+            `${locatorType}[role="button"][aria-label*="${searchText}"]`,
+            `${locatorType}[role="link"][aria-label*="${searchText}"]`,
+            `${locatorType}[role="tab"][aria-label*="${searchText}"]`,
+    
+            // Common State Attributes
+            `${locatorType}[data-state*="${searchText}"]`,
+            `${locatorType}[data-status*="${searchText}"]`,
+            `${locatorType}[data-condition*="${searchText}"]`
+        ]
+    
 
     // Input type-specific patterns
     const inputTypePatterns = {
@@ -201,8 +202,8 @@ async function getCommonLocators(page, step) {
     const elementSpecificSelectors = {
         input: [
             // Add type-specific selectors if type is provided
-            ...(inputType && inputTypePatterns[inputType] ?
-                inputTypePatterns[inputType].map(selector =>
+            ...(inputType && inputTypePatterns[inputType] ? 
+                inputTypePatterns[inputType].map(selector => 
                     `${selector}[(name|id|placeholder|aria-label)*="${searchText}"]`
                 ) : []),
             // General input patterns
@@ -345,32 +346,32 @@ async function getCommonLocators(page, step) {
         ...frameworkPatterns
     ];
 
-    // Add these patterns for error messages and notifications
-    const additionalPatterns = [
-        // Error messages
-        `[role="alert"]:has-text("${searchText}")`,
-        `[class*="error"]:has-text("${searchText}")`,
-        `[class*="message"]:has-text("${searchText}")`,
-        `[class*="notification"]:has-text("${searchText}")`,
-        
-        // Form validation messages
-        `[aria-invalid="true"] ~ [role="alert"]`,
-        `[data-error]:has-text("${searchText}")`,
-        `[class*="validation"]:has-text("${searchText}")`,
-        
-        // Generic text containers
-        `div:has-text("${searchText}")`,
-        `span:has-text("${searchText}")`,
-        `p:has-text("${searchText}")`,
-        
-        // Common UI patterns
-        `[class*="toast"]:has-text("${searchText}")`,
-        `[class*="popup"]:has-text("${searchText}")`,
-        `[class*="modal"]:has-text("${searchText}")`
-    ];
-
-    allSelectors = [...allSelectors, ...additionalPatterns];
-
+        // Add these patterns for error messages and notifications
+        const additionalPatterns = [
+            // Error messages
+            `[role="alert"]:has-text("${searchText}")`,
+            `[class*="error"]:has-text("${searchText}")`,
+            `[class*="message"]:has-text("${searchText}")`,
+            `[class*="notification"]:has-text("${searchText}")`,
+            
+            // Form validation messages
+            `[aria-invalid="true"] ~ [role="alert"]`,
+            `[data-error]:has-text("${searchText}")`,
+            `[class*="validation"]:has-text("${searchText}")`,
+            
+            // Generic text containers
+            `div:has-text("${searchText}")`,
+            `span:has-text("${searchText}")`,
+            `p:has-text("${searchText}")`,
+            
+            // Common UI patterns
+            `[class*="toast"]:has-text("${searchText}")`,
+            `[class*="popup"]:has-text("${searchText}")`,
+            `[class*="modal"]:has-text("${searchText}")`
+        ];
+    
+        allSelectors = [...allSelectors, ...additionalPatterns];
+    
     // Try each selector
     for (const selector of allSelectors) {
         try {
@@ -411,6 +412,22 @@ async function getCommonLocators(page, step) {
     return null;
 }
 
+async function trySelectors(context, selectors) {
+    for (const selector of selectors) {
+        try {
+            const element = context.locator(selector);
+            const isVisible = await element.isVisible().catch(() => false);
+            if (isVisible) {
+                console.log(`✅ Found element in ${context === page ? 'main frame' : 'iframe'}`);
+                return element;
+            }
+        } catch (error) {
+            continue;
+        }
+    }
+    return null;
+}
+
 async function handleElementAction(page, step, actionType, test) {
     return await test.step(`Locating ${step.locatorType}: "${step.locator}"`, async () => {
         try {
@@ -418,12 +435,12 @@ async function handleElementAction(page, step, actionType, test) {
 
             if (element) {
                 await element.waitFor({ state: 'visible', timeout: 5000 });
-
+                
                 test.info().annotations.push({
                     type: 'Element Found',
                     description: `✅ Element found using Playwright: ${step.locatorType} - "${step.locator}"`
                 });
-
+                
                 return element;
             }
 
