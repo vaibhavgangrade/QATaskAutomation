@@ -27,6 +27,24 @@ export class ActionHelper {
         this.page = page;
     }
 
+    setPage(page) {
+        if (this.page !== page) {
+            this.page = page;
+        }
+    }
+
+    async waitForPageTransition() {
+        try {
+            // Wait for any potential navigation
+            await Promise.race([
+                this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 5000 }).catch(() => {}),
+                this.page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {})
+            ]);
+        } catch (error) {
+            console.log('Page transition wait completed');
+        }
+    }
+
     async handleGoto(page, step, test) {
         return await test.step(`Navigate to: ${step.locator}`, async () => {
             try {
@@ -60,7 +78,7 @@ export class ActionHelper {
             }
         });
     }
-
+    
     async handleAssert(page, step, test) {
         return await test.step(`Assert: ${step.value}`, async () => {
             try {
@@ -409,88 +427,64 @@ export class ActionHelper {
                     throw new Error('Element not found');
                 }
 
-                // Enhanced click handling
-                try {
-                    await element.scrollIntoViewIfNeeded();
-                    await page.waitForTimeout(500);
+                // Enhanced visibility check
+                await element.scrollIntoViewIfNeeded();
+                await page.waitForTimeout(2000); // Increased wait time
 
-                    // Try multiple click strategies in sequence
-                    const clickStrategies = [
-                        // Strategy 1: Standard click
-                        async () => await element.click({ timeout: 5000 }),
-                        
-                        // Strategy 2: Force click
-                        async () => await element.click({ force: true, timeout: 5000 }),
-                        
-                        // Strategy 3: Click with position offset
-                        async () => await element.click({ position: { x: 5, y: 5 }, timeout: 5000 }),
-                        
-                        // Strategy 4: JavaScript click
-                        async () => await page.evaluate(selector => {
-                            const el = document.querySelector(selector);
-                            if (el) {
-                                el.click();
-                                return true;
-                            }
-                            return false;
-                        }, element.toString()),
-                        
-                        // Strategy 5: Dispatch click event
-                        async () => await element.evaluate(el => {
-                            el.dispatchEvent(new MouseEvent('click', {
-                                view: window,
-                                bubbles: true,
-                                cancelable: true,
-                                buttons: 1
-                            }));
-                        }),
-                        
-                        // Strategy 6: Parent click
-                        async () => await page.evaluate(selector => {
-                            const el = document.querySelector(selector);
-                            if (el && el.parentElement) {
-                                el.parentElement.click();
-                                return true;
-                            }
-                            return false;
-                        }, element.toString())
-                    ];
-
-                    // Try each strategy with error handling
-                    for (let i = 0; i < clickStrategies.length; i++) {
-                        try {
-                            await clickStrategies[i]();
-                            
-                            // Wait for any navigation or network activity
-                            await Promise.race([
-                                page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {}),
-                                page.waitForTimeout(2000)
-                            ]);
-
-                            test.info().annotations.push({
-                                type: 'Click Success',
-                                description: `✅ Successfully clicked using strategy ${i + 1}: "${step.locator}"`
-                            });
-                            return;
-                        } catch (strategyError) {
-                            console.log(`Strategy ${i + 1} failed:`, strategyError.message);
-                            if (i === clickStrategies.length - 1) {
-                                throw strategyError; // Throw error if all strategies fail
-                            }
-                        }
-                    }
-
-                } catch (clickError) {
-                    throw new Error(`All click strategies failed: ${clickError.message}`);
+                // More thorough visibility check
+                const isVisible = await element.isVisible();
+                const isEnabled = await element.isEnabled();
+                const isInViewport = await element.evaluate(el => {
+                    const rect = el.getBoundingClientRect();
+                    return (
+                        rect.top >= 0 &&
+                        rect.left >= 0 &&
+                        rect.bottom <= window.innerHeight &&
+                        rect.right <= window.innerWidth
+                    );
+                });
+                
+                if (!isVisible || !isEnabled || !isInViewport) {
+                    throw new Error(`Element "${step.locator}" not interactable (visible: ${isVisible}, enabled: ${isEnabled}, in viewport: ${isInViewport})`);
                 }
 
-            } catch (actionError) {
-                test.info().annotations.push({
-                    type: 'Action Failed',
-                    description: `⚠️ Click attempt failed: ${actionError.message} using Playwright`
-                });
+                // Multiple click strategies
+                for (let attempt = 1; attempt <= 3; attempt++) {
+                    try {
+                        switch (attempt) {
+                            case 1:
+                                await element.click({ timeout: 15000 });
+                                break;
+                            case 2:
+                                await element.click({ force: true, timeout: 15000 });
+                                break;
+                            case 3:
+                                await page.evaluate(el => {
+                                    el.click();
+                                    // Dispatch additional events for better interaction
+                                    el.dispatchEvent(new MouseEvent('mousedown'));
+                                    el.dispatchEvent(new MouseEvent('mouseup'));
+                                    el.dispatchEvent(new MouseEvent('click'));
+                                }, element);
+                                break;
+                        }
 
-                // Fallback to Zerostep
+                        await Promise.race([
+                            page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => {})
+                        ]);
+
+                        test.info().annotations.push({
+                            type: 'Click Success',
+                            description: `✅ Successfully clicked using strategy ${attempt}`
+                        });
+                        return;
+                    } catch (clickError) {
+                        await page.waitForTimeout(2000);
+                        if (attempt === 3) throw clickError;
+                    }
+                }
+            } catch (error) {
+                // Fallback to AI command as before
                 test.info().annotations.push({
                     type: 'Fallback',
                     description: `⚠️ Falling back to Zerostep for click: "${step.locator}"`
@@ -503,6 +497,9 @@ export class ActionHelper {
                         additionalContext: `Click on ${step.locatorType} element containing text or label "${step.locator}"`
                     }, test);
                     
+                    // Wait for navigation after AI command
+                    await page.waitForLoadState('domcontentloaded').catch(() => {});
+                    
                 } catch (fallbackError) {
                     test.info().annotations.push({
                         type: 'Fallback Failed',
@@ -513,7 +510,7 @@ export class ActionHelper {
             }
         });
     }
-
+    
     async handleCheckVisible(page, step, test) {
         return await test.step(`Check visibility: "${step.locator}"`, async () => {
             try {
@@ -549,7 +546,7 @@ export class ActionHelper {
                     await this.handleAiCommand(page, {
                         ...step,
                         action: 'waitfortext',
-                        additionalContext: `Wait for element containing text "${step.locator}" to be visible`
+                        additionalContext: `Wait for ${step.locatorType} element containing text "${step.locator}" to be visible`
                     }, test);
 
                     return true;
@@ -720,8 +717,7 @@ export class ActionHelper {
         return await test.step(`Scroll: "${step.locator}"`, async () => {
             const suffix = getSuffix(step.value);
             const description = suffix ? 
-                `🔍 Attempting to scroll to ${suffix} "${step.locator}"` : 
-                `🔍 Attempting to scroll to "${step.locator}"`;
+                `🔍 Attempting to scroll to ${suffix} "${step.locator} ${step.locator}"` : 
 
             test.info().annotations.push({
                 type: 'Scroll Start',
@@ -799,7 +795,7 @@ export class ActionHelper {
                     await this.handleAiCommand(page, {
                         ...step,
                         action: 'scroll',
-                        additionalContext: `Scroll to the ${getSuffix(step.value) || 'first'} element containing text "${step.locator}"`
+                        additionalContext: `Scroll to the ${getSuffix(step.value) || 'first'} ${step.locatorType} element containing text "${step.locator}"`
                     }, test);
                     
                 } catch (fallbackError) {

@@ -14,9 +14,9 @@ export const retailerConfig = {
         excelFile: 'test.xlsx',
         jsfile: 'walmart.js'
     },
-    costco: {
-        domain: 'costco.com',
-        excelFile: 'costco.xlsx',
+    newegg: {
+        domain: 'newegg.com',
+        excelFile: 'newegg.xlsx',
         jsfile: 'costco.js'
     }
     

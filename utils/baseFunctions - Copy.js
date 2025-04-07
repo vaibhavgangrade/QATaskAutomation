@@ -1,154 +1,479 @@
+import { locatorManager } from './locatorManager.js';
+const { expect } = require('@playwright/test');
+
 async function getListValues(page, locator) {
+    if (!page || !locator) {
+        throw new Error(`Invalid parameters: page and locator are required. Got page=${!!page}, locator=${locator}`);
+    }
+
     try {
         const element = page.locator(locator);
         await expect(element).toBeVisible({ timeout: 5000 });
 
         // Get text content and split by newline
         const text = await element.textContent();
+        if (!text) {
+            throw new Error(`No text content found for locator: ${locator}`);
+        }
+
         const values = text.split('\n')
             .map(item => item.trim())
             .filter(item => item !== '');
+
+        if (values.length === 0) {
+            throw new Error(`No valid values found in text content for locator: ${locator}`);
+        }
 
         console.log(`Found ${values.length} items:`, values);
         return values;
     } catch (error) {
         console.error('Error getting list values:', error.message);
-        throw error;
+        throw error; // Re-throw the error without any fallback
     }
 }
 
 async function getCommonLocators(page, step) {
+    // Excel-specific validation
+    if (!step || typeof step !== 'object') {
+        throw new Error('Invalid step object provided');
+    }
+
     const searchText = step.locator?.toString().trim();
     const locatorType = step.locatorType?.toString().toLowerCase().trim();
+    const inputType = step.value?.toString().toLowerCase().trim();
 
-    console.log(`🔍 Searching for ${locatorType} with text/attribute: "${searchText}"`);
+    // Validate required Excel fields
+    if (!searchText) {
+        throw new Error('Missing required locator text in Excel step');
+    }
+    if (!locatorType) {
+        console.warn('⚠️ No locatorType specified in Excel, defaulting to generic selectors');
+    }
 
-    // Base selectors that work for all element types
-    const baseSelectors = [
+    console.log(`🔍 Searching for ${locatorType || 'element'} with text/attribute: "${searchText}"`);
+    
+    // Handle Excel-specific timeouts if provided
+    if (step.waitBefore) {
+        await page.waitForTimeout(parseInt(step.waitBefore));
+    }
+
+    // Universal ecommerce patterns
+    const universalEcommercePatterns = [
+        // Generic Product Related
+        `${locatorType}[data-product-id*="${searchText}"]`,
+        `${locatorType}[data-sku*="${searchText}"]`,
+        `${locatorType}[data-item*="${searchText}"]`,
+
+        // Common Shopping Elements
+        `${locatorType}[data-cart*="${searchText}"]`,
+        `${locatorType}[data-checkout*="${searchText}"]`,
+        `${locatorType}[data-basket*="${searchText}"]`,
+
+        // Common Header/Navigation
+        `${locatorType}[data-search*="${searchText}"]`,
+        `${locatorType}[data-menu*="${searchText}"]`,
+        `${locatorType}[data-nav*="${searchText}"]`,
+
+        // Common Footer
+        `${locatorType}[data-footer*="${searchText}"]`,
+        `${locatorType}[data-section*="${searchText}"]`,
+
+        // Common Button/Input Patterns
+        `${locatorType}[name*="search"][value*="${searchText}"]`,
+        `${locatorType}[name*="cart"][value*="${searchText}"]`,
+        `${locatorType}[name*="checkout"][value*="${searchText}"]`,
+
+        // Price Related
+        `${locatorType}[data-price*="${searchText}"]`,
+        `${locatorType}[data-amount*="${searchText}"]`,
+        `${locatorType}[data-currency*="${searchText}"]`,
+
+        // Common Form Elements
+        `${locatorType}[data-form*="${searchText}"]`,
+        `${locatorType}[data-input*="${searchText}"]`,
+        `${locatorType}[data-field*="${searchText}"]`,
+
+        // Common Authentication
+        `${locatorType}[data-login*="${searchText}"]`,
+        `${locatorType}[data-account*="${searchText}"]`,
+        `${locatorType}[data-auth*="${searchText}"]`,
+
+        // Common UI Elements
+        `${locatorType}[data-modal*="${searchText}"]`,
+        `${locatorType}[data-popup*="${searchText}"]`,
+        `${locatorType}[data-dialog*="${searchText}"]`,
+
+        // Common Content
+        `${locatorType}[data-content*="${searchText}"]`,
+        `${locatorType}[data-text*="${searchText}"]`,
+        `${locatorType}[data-label*="${searchText}"]`,
+
+        // Generic Attribute Combinations
+        `${locatorType}[id*="${searchText.toLowerCase()}"]`,
+        `${locatorType}[class*="${searchText.toLowerCase()}"]`,
+        `${locatorType}[name*="${searchText.toLowerCase()}"]`,
+
+        // Text Content Variations
         `${locatorType}:has-text("${searchText}")`,
-        `${locatorType}:text("${searchText}")`,
-        `${locatorType}[aria-label="${searchText}"]`,
-        `${locatorType}[aria-label*="${searchText}"]`,
-        `${locatorType}[data-testid*="${searchText}"]`,
+        `${locatorType}:text-is("${searchText}")`,
+        `${locatorType}:contains("${searchText}")`,
+
+        // Common Testing Attributes
         `${locatorType}[data-test*="${searchText}"]`,
+        `${locatorType}[data-testid*="${searchText}"]`,
+        `${locatorType}[data-qa*="${searchText}"]`,
         `${locatorType}[data-cy*="${searchText}"]`,
-        `${locatorType}[id*="${searchText}"]`,
-        `${locatorType}[name="${searchText}"]`
+
+        // Accessibility
+        `${locatorType}[aria-label*="${searchText}"]`,
+        `${locatorType}[title*="${searchText}"]`,
+        `${locatorType}[alt*="${searchText}"]`,
+
+        // Dynamic Content
+        `${locatorType}[data-dynamic*="${searchText}"]`,
+        `${locatorType}[data-lazy*="${searchText}"]`,
+        `${locatorType}[data-load*="${searchText}"]`,
+
+        // Value Based
+        `${locatorType}[value*="${searchText}"]`,
+        `${locatorType}[placeholder*="${searchText}"]`,
+
+        // Nested Elements
+        `${locatorType}:has(> *:text-is("${searchText}"))`,
+        `${locatorType}:has(span:text-is("${searchText}"))`,
+        `${locatorType}:has(div:text-is("${searchText}"))`,
+
+        // Form Labels
+        `label:has-text("${searchText}") + ${locatorType}`,
+        `label[for*="${searchText}"] + ${locatorType}`,
+
+        // Common Interactive Elements
+        `${locatorType}[role="button"][aria-label*="${searchText}"]`,
+        `${locatorType}[role="link"][aria-label*="${searchText}"]`,
+        `${locatorType}[role="tab"][aria-label*="${searchText}"]`,
+
+        // Common State Attributes
+        `${locatorType}[data-state*="${searchText}"]`,
+        `${locatorType}[data-status*="${searchText}"]`,
+        `${locatorType}[data-condition*="${searchText}"]`,
+
+        // Enhanced Text Matching Patterns
+        `${locatorType}:has-text("${searchText}")`,
+        `${locatorType}:text-matches("${searchText}", "i")`,
+        `${locatorType}:has-text("${searchText.split(' ').join('.*')}")`,
+        `${locatorType}:has-text("${searchText.replace(/ /g, '.*')}")`,
+        
+        // Enhanced Accessibility Patterns
+        `${locatorType}[aria-label*="${searchText}" i]`,
+        `${locatorType}[aria-label*="${searchText.split(' ').join('.*')}" i]`,
+        `${locatorType}[aria-label*="${searchText.replace(/ /g, '.*')}" i]`,
+        
+        // Enhanced Role-based Patterns
+        `${locatorType}[role="text"]:has-text("${searchText}")`,
+        `${locatorType}[role="heading"]:has-text("${searchText}")`,
+        `${locatorType}[role="listitem"]:has-text("${searchText}")`,
+        
+        // Enhanced Nested Text Patterns
+        `${locatorType}:has(> *:has-text("${searchText}"))`,
+        `${locatorType}:has(span:has-text("${searchText}"))`,
+        `${locatorType}:has(div:has-text("${searchText}"))`,
+        `${locatorType}:has(p:has-text("${searchText}"))`,
+        
+        // Enhanced Attribute Combinations
+        `${locatorType}[(class|id|name|aria-label)*="${searchText}" i]`,
+        `${locatorType}[(class|id|name|aria-label)*="${searchText.split(' ').join('.*')}" i]`,
+        
+        // Common UI Component Patterns
+        `${locatorType}[class*="card"][class*="${searchText.toLowerCase()}"]`,
+        `${locatorType}[class*="section"][class*="${searchText.toLowerCase()}"]`,
+        `${locatorType}[class*="container"][class*="${searchText.toLowerCase()}"]`,
+        
+        // Enhanced Text Container Patterns
+        `${locatorType}[class*="text"]:has-text("${searchText}")`,
+        `${locatorType}[class*="content"]:has-text("${searchText}")`,
+        `${locatorType}[class*="description"]:has-text("${searchText}")`,
+        
+        // Common E-commerce Specific Patterns
+        `${locatorType}[class*="payment"]:has-text("${searchText}")`,
+        `${locatorType}[class*="checkout"]:has-text("${searchText}")`,
+        `${locatorType}[class*="order"]:has-text("${searchText}")`,
+        
+        // Enhanced Visibility Patterns
+        `${locatorType}:visible:has-text("${searchText}")`,
+        `${locatorType}:not([style*="display: none"]):has-text("${searchText}")`,
+        `${locatorType}:not([style*="visibility: hidden"]):has-text("${searchText}")`
+    ];
+
+    // Input type-specific patterns
+    const inputTypePatterns = {
+        password: [
+            'input[type="password"]',
+            '#ap_password',
+            'input[name="password"]',
+            'input[aria-label*="password" i]',
+            'input[placeholder*="password" i]',
+            'input[type="password"][name*="password"]',
+            'input[type="password"][id*="password"]'
+        ],
+        email: [
+            'input[type="email"]',
+            'input[name*="email"]',
+            'input[id*="email"]',
+            'input[aria-label*="email" i]',
+            'input[placeholder*="email" i]'
+        ],
+        text: [
+            'input[type="text"]',
+            'input:not([type])',
+            'input[aria-label*="text"]',
+            'input[role="textbox"]'
+        ],
+        search: [
+            'input[type="search"]',
+            'input[role="searchbox"]',
+            'input[name*="search"]',
+            'input[aria-label*="search" i]'
+        ],
+        tel: [
+            'input[type="tel"]',
+            'input[name*="phone"]',
+            'input[aria-label*="phone" i]',
+            'input[placeholder*="phone" i]'
+        ],
+        number: [
+            'input[type="number"]',
+            'input[inputmode="numeric"]',
+            'input[aria-label*="number" i]'
+        ]
+    };
+
+    // Common attribute patterns
+    const commonAttributePatterns = [
+        // Generic attribute name patterns
+        `${locatorType}[(name|id|label|aria-label)="${searchText}"]`,
+        `${locatorType}[(name|id|label|aria-label)*="${searchText}"]`,
+        // Data attributes
+        `${locatorType}[data-*="${searchText}"]`,
+        `${locatorType}[(data-test|data-testid|data-cy|data-automation)="${searchText}"]`,
+        // ARIA attributes
+        `${locatorType}[(aria-describedby|aria-label|aria-labelledby)*="${searchText}"]`,
+        // Common UI attributes
+        `${locatorType}[(title|alt|placeholder|value)*="${searchText}"]`
     ];
 
     // Element-specific selector strategies
     const elementSpecificSelectors = {
-        button: [
-            `button:has-text("${searchText}")`,
-            `button[type="submit"]:has-text("${searchText}")`,
-            `button[type="button"]:has-text("${searchText}")`,
-            `input[type="button"][value*="${searchText}"]`,
-            `input[type="submit"][value*="${searchText}"]`,
-            `a:has-text("${searchText}")`,
-            `[role="button"]:has-text("${searchText}")`
-        ],
         input: [
-            `input[placeholder="${searchText}"]`,
-            `input[placeholder*="${searchText}"]`,
-            `input[type="text"][placeholder*="${searchText}"]`,
-            `input[name="${searchText}"]`,
-            `textarea[placeholder*="${searchText}"]`,
-            `label:has-text("${searchText}") + input`,
+            // Add type-specific selectors if type is provided
+            ...(inputType && inputTypePatterns[inputType] ? 
+                inputTypePatterns[inputType].map(selector => 
+                    `${selector}[(name|id|placeholder|aria-label)*="${searchText}"]`
+                ) : []),
+            // General input patterns
+            `input[(type|name|id|aria-label)*="${searchText}"]`,
+            `input[type="text"][(name|id|placeholder|aria-label)*="${searchText}"]`,
+            `input[type="email"][(name|id|placeholder|aria-label)*="${searchText}"]`,
+            `input[type="password"][(name|id|placeholder|aria-label)*="${searchText}"]`,
+            `input[type="search"][(name|id|placeholder|aria-label)*="${searchText}"]`,
+            // Label associations
+            `label:text-matches("${searchText}", "i") + input`,
             `label:has-text("${searchText}") ~ input`,
-            `[role="textbox"][aria-label*="${searchText}"]`
+            `label[for*="${searchText}"] + input`,
+            // Role-based
+            `[role="textbox"][(name|id|aria-label)*="${searchText}"]`
+        ],
+        button: [
+            // Button variations
+            `button:text-matches("${searchText}", "i")`,
+            `button[(type|name|id|aria-label)*="${searchText}"]`,
+            // Input buttons
+            `input[type="button"][(value|name|id)*="${searchText}"]`,
+            `input[type="submit"][(value|name|id)*="${searchText}"]`,
+            // Role-based buttons
+            `[role="button"]:text-matches("${searchText}", "i")`,
+            // Links that act as buttons
+            `a:text-matches("${searchText}", "i")`,
+            `a[(href|title|aria-label)*="${searchText}"]`
         ],
         select: [
-            `select[name="${searchText}"]`,
-            `select[aria-label*="${searchText}"]`,
-            `label:has-text("${searchText}") + select`,
-            `[role="combobox"][aria-label*="${searchText}"]`
-        ],
-        checkbox: [
-            `input[type="checkbox"][name="${searchText}"]`,
-            `label:has-text("${searchText}") input[type="checkbox"]`,
-            `[role="checkbox"]:has-text("${searchText}")`
-        ],
-        radio: [
-            `input[type="radio"][name="${searchText}"]`,
-            `label:has-text("${searchText}") input[type="radio"]`,
-            `[role="radio"]:has-text("${searchText}")`
-        ],
-        link: [
-            `a:has-text("${searchText}")`,
-            `a[href*="${searchText}"]`,
-            `[role="link"]:has-text("${searchText}")`
-        ],
-        image: [
-            `img[alt="${searchText}"]`,
-            `img[src*="${searchText}"]`,
-            `[role="img"][aria-label*="${searchText}"]`
+            // Select elements
+            `select[(name|id|aria-label)*="${searchText}"]`,
+            // Combobox roles
+            `[role="combobox"][(name|id|aria-label)*="${searchText}"]`,
+            `[role="listbox"][(name|id|aria-label)*="${searchText}"]`,
+            // Label associations
+            `label:text-matches("${searchText}", "i") + select`
         ],
         div: [
-            `div:has-text("${searchText}")`,
-            `div[class*="${searchText}"]`,
-            `div[id*="${searchText}"]`
+            // Text content
+            `div:text-matches("${searchText}", "i")`,
+            // Common attributes
+            `div[(class|id|role|aria-label)*="${searchText}"]`,
+            // Nested text
+            `div:has(text="${searchText}")`,
+            // Role-based
+            `div[role][(aria-label|title)*="${searchText}"]`
         ],
         span: [
+            // Text content with exact and fuzzy matches
+            `span:text-is("${searchText}")`,
+            `span:text-matches("${searchText}", "i")`,
             `span:has-text("${searchText}")`,
-            `span[class*="${searchText}"]`,
-            `span[id*="${searchText}"]`
+            
+            // Common attributes
+            `span[(class|id|role|aria-label)*="${searchText}"]`,
+            `span[role][(aria-label|title)*="${searchText}"]`,
+            
+            // Enhanced checkout-specific patterns for spans
+            `span[class*="checkout"]:has-text("${searchText}")`,
+            `span[class*="proceed"]:has-text("${searchText}")`,
+            `span[class*="cart"]:has-text("${searchText}")`,
+            
+            // Nested text variations for better matching
+            `span:has(> *:text-is("${searchText}"))`,
+            `span:has(*:text-matches("${searchText}", "i"))`,
+            
+            // Common parent elements that might contain spans
+            `[class*="button"] span:has-text("${searchText}")`,
+            `[class*="checkout"] span:has-text("${searchText}")`,
+            `[class*="cart"] span:has-text("${searchText}")`,
+            
+            // Role-based patterns specific to checkout flows
+            `span[role="button"]:has-text("${searchText}")`,
+            `span[role="link"]:has-text("${searchText}")`,
+            
+            // Accessibility patterns
+            `span[aria-label*="${searchText}"]`,
+            `span[title*="${searchText}"]`,
+            
+            // Common UI framework patterns for spans
+            `span[class*="text"]:has-text("${searchText}")`,
+            `span[class*="label"]:has-text("${searchText}")`,
+            `span[class*="content"]:has-text("${searchText}")`
+        ],
+        a: [
+            // Link text
+            `a:text-matches("${searchText}", "i")`,
+            // Common attributes
+            `a[(href|title|aria-label)*="${searchText}"]`,
+            // Role-based
+            `[role="link"]:text-matches("${searchText}", "i")`
+        ],
+        img: [
+            // Image attributes
+            `img[(alt|title|src|aria-label)*="${searchText}"]`,
+            // Role-based
+            `[role="img"][(alt|title|aria-label)*="${searchText}"]`
         ],
         label: [
-            `label:has-text("${searchText}")`,
-            `[role="label"]:has-text("${searchText}")`
-            `[role="label"][aria-label*="${searchText}"]`
+            // Text content
+            `label:text-matches("${searchText}", "i")`,
+            // Common attributes
+            `label[(for|id|class)*="${searchText}"]`,
+            // Role-based
+            `[role="label"]:text-matches("${searchText}", "i")`
+        ],
+        p: [
+            // Paragraph text
+            `p:text-matches("${searchText}", "i")`,
+            // Common attributes
+            `p[(class|id|aria-label)*="${searchText}"]`
+        ],
+        h1: [
+            `h1:text-matches("${searchText}", "i")`,
+            `h1[(class|id|aria-label)*="${searchText}"]`
+        ],
+        h2: [
+            `h2:text-matches("${searchText}", "i")`,
+            `h2[(class|id|aria-label)*="${searchText}"]`
+        ],
+        h3: [
+            `h3:text-matches("${searchText}", "i")`,
+            `h3[(class|id|aria-label)*="${searchText}"]`
         ],
         table: [
-            `table[aria-label*="${searchText}"]`,
-            `th:has-text("${searchText}")`,
-            `td:has-text("${searchText}")`,
-            `[role="grid"][aria-label*="${searchText}"]`
+            // Table elements
+            `table[(id|aria-label)*="${searchText}"]`,
+            `th:text-matches("${searchText}", "i")`,
+            `td:text-matches("${searchText}", "i")`,
+            // Role-based
+            `[role="grid"][(aria-label)*="${searchText}"]`,
+            `[role="gridcell"]:text-matches("${searchText}", "i")`
         ],
-        dropdown: [
-            `select[name="${searchText}"]`,
-            `[role="combobox"][aria-label*="${searchText}"]`,
-            `[role="listbox"][aria-label*="${searchText}"]`,
-            `.dropdown:has-text("${searchText}")`
-            `[role="combobox"][aria-label*="${searchText}"]`
+        li: [
+            // List items
+            `li:text-matches("${searchText}", "i")`,
+            `li[(class|id|aria-label)*="${searchText}"]`
+        ],
+        textarea: [
+            // Textarea elements
+            `textarea[(name|id|placeholder|aria-label)*="${searchText}"]`,
+            // Label associations
+            `label:text-matches("${searchText}", "i") + textarea`
         ]
     };
 
-    // Framework-specific selectors
-    const frameworkSelectors = [
+    // Framework-specific patterns
+    const frameworkPatterns = [
         // Angular
-        `[ng-model="${searchText}"]`,
-        `[ng-bind="${searchText}"]`,
+        `[ng-model*="${searchText}"]`,
+        `[ng-bind*="${searchText}"]`,
+        `[formControlName*="${searchText}"]`,
         // React
         `[data-reactid*="${searchText}"]`,
         // Vue
-        `[v-model="${searchText}"]`,
+        `[v-model*="${searchText}"]`,
         // Common UI libraries
-        `[class*="MuiButton"][aria-label*="${searchText}"]`, // Material-UI
-        `[class*="ant-"][aria-label*="${searchText}"]`, // Ant Design
-        `[class*="chakra-"][aria-label*="${searchText}"]` // Chakra UI
+        `[class*="mui"][aria-label*="${searchText}"]`,
+        `[class*="ant-"][aria-label*="${searchText}"]`,
+        `[class*="chakra-"][aria-label*="${searchText}"]`,
+        `[class*="bootstrap-"][aria-label*="${searchText}"]`
     ];
 
-    // Combine all relevant selectors
-    let allSelectors = [...baseSelectors];
+    // Combine all selectors with priority for type-specific patterns
+    let allSelectors = [
+        ...(inputType && inputTypePatterns[inputType] ? inputTypePatterns[inputType] : []),
+        ...commonAttributePatterns,
+        ...(elementSpecificSelectors[locatorType] || []),
+        ...frameworkPatterns
+    ];
 
-    // Add element-specific selectors if available
-    if (elementSpecificSelectors[locatorType]) {
-        allSelectors = [...allSelectors, ...elementSpecificSelectors[locatorType]];
-    }
-
-    // Add framework selectors
-    allSelectors = [...allSelectors, ...frameworkSelectors];
-
-    // Try each selector strategy
+        // Add these patterns for error messages and notifications
+        const additionalPatterns = [
+            // Error messages
+            `[role="alert"]:has-text("${searchText}")`,
+            `[class*="error"]:has-text("${searchText}")`,
+            `[class*="message"]:has-text("${searchText}")`,
+            `[class*="notification"]:has-text("${searchText}")`,
+            
+            // Form validation messages
+            `[aria-invalid="true"] ~ [role="alert"]`,
+            `[data-error]:has-text("${searchText}")`,
+            `[class*="validation"]:has-text("${searchText}")`,
+            
+            // Generic text containers
+            `div:has-text("${searchText}")`,
+            `span:has-text("${searchText}")`,
+            `p:has-text("${searchText}")`,
+            
+            // Common UI patterns
+            `[class*="toast"]:has-text("${searchText}")`,
+            `[class*="popup"]:has-text("${searchText}")`,
+            `[class*="modal"]:has-text("${searchText}")`
+        ];
+    
+        allSelectors = [...allSelectors, ...additionalPatterns];
+    
+    // Try each selector
     for (const selector of allSelectors) {
         try {
-            const locator = page.locator(selector);
-            const count = await locator.count();
+            const element = page.locator(selector);
+            const count = await element.count();
             if (count > 0) {
-                const isVisible = await locator.first().isVisible().catch(() => false);
+                const isVisible = await element.first().isVisible().catch(() => false);
                 if (isVisible) {
-                    console.log(`✅ Found ${locatorType} element using selector: ${selector}`);
-                    return locator.first();
+                    console.log(`✅ Found ${locatorType} (type: ${inputType || 'any'}) using: ${selector}`);
+                    return element.first();
                 }
             }
         } catch (error) {
@@ -156,64 +481,200 @@ async function getCommonLocators(page, step) {
         }
     }
 
-    // If no element found with specific selectors, try generic text search
+    // Try generic text search as last resort
     try {
-        const genericSelector = `:text("${searchText}")`;
-        const element = page.locator(genericSelector);
-        const isVisible = await element.first().isVisible().catch(() => false);
-        if (isVisible) {
-            console.log(`⚠️ Found element using generic text selector: ${genericSelector}`);
-            return element.first();
+        const textSelectors = [
+            `:text-matches("${searchText}", "i")`,
+            `:has-text("${searchText}")`,
+            `text=${searchText}`
+        ];
+
+        for (const selector of textSelectors) {
+            const element = page.locator(selector);
+            const isVisible = await element.first().isVisible().catch(() => false);
+            if (isVisible) {
+                console.log(`⚠️ Found using text selector: ${selector}`);
+                return element.first();
+            }
         }
     } catch (error) {
-        console.log(`❌ No element found for ${locatorType}: ${searchText}`);
+        console.log(`❌ No element found for ${locatorType} (type: ${inputType || 'any'}): ${searchText}`);
     }
 
+    return null;
+}
+
+async function trySelectors(context, selectors) {
+    for (const selector of selectors) {
+        try {
+            const element = context.locator(selector);
+            const isVisible = await element.isVisible().catch(() => false);
+            if (isVisible) {
+                console.log(`✅ Found element in ${context === page ? 'main frame' : 'iframe'}`);
+                return element;
+            }
+        } catch (error) {
+            continue;
+        }
+    }
     return null;
 }
 
 async function handleElementAction(page, step, actionType, test) {
     return await test.step(`Locating ${step.locatorType}: "${step.locator}"`, async () => {
         try {
-            await test.step(`Attempting Playwright selectors`, async () => {
-                const element = await getCommonLocators(page, step);
+            const element = await getCommonLocators(page, step);
 
-                if (element) {
-                    try {
-                        await element.waitFor({ state: 'visible', timeout: 5000 });
+            if (element) {
+                await element.waitFor({ state: 'visible', timeout: 5000 });
+                
+                test.info().annotations.push({
+                    type: 'Element Found',
+                    description: `✅ Element found using Playwright: ${step.locatorType} - "${step.locator}"`
+                });
+                
+                return element;
+            }
 
-                        // Add Playwright location details
-                        test.info().attachments.push({
-                            name: 'Playwright Location Details',
-                            contentType: 'application/json',
-                            body: Buffer.from(JSON.stringify({
-                                executionMethod: 'Playwright',
-                                elementType: step.locatorType,
-                                locator: step.locator,
-                                selector: await element.evaluate(el => el.outerHTML),
-                                timestamp: new Date().toISOString()
-                            }, null, 2))
-                        });
-
-                        return element; // Simply return the element if found
-                    } catch (error) {
-                        await test.step(`⚠️ Element found but not visible: ${error.message}`, async () => { });
-                        return null;
-                    }
-                }
-
-                await test.step(`⚠️ No element found with Playwright selectors`, async () => { });
-                return null;
+            test.info().annotations.push({
+                type: 'Element Not Found',
+                description: `❌ No element found: ${step.locatorType} - "${step.locator}"`
             });
+            return null;
         } catch (error) {
-            await test.step(`❌ Error in Playwright execution: ${error.message}`, async () => { });
+            test.info().annotations.push({
+                type: 'Execution Error',
+                description: `❌ Error in Playwright execution: ${error.message}`
+            });
             return null;
         }
     });
 }
 
+// Helper function to get the proper suffix for numbers
+function getSuffix(value) {
+    if (!value) return '';
+    const num = parseInt(value);
+    if (isNaN(num)) return value;
+
+    if (num === 1) return 'first';
+    if (num === 2) return 'second';
+    if (num === 3) return 'third';
+    return `${num}th`;
+}
+
+// Helper method to get text from element
+async function getElementText(element) {
+    try {
+        // Try different methods to get text
+        let text = await element.textContent();
+        if (text?.trim()) return text;
+
+        text = await element.innerText();
+        if (text?.trim()) return text;
+
+        text = await element.inputValue();
+        if (text?.trim()) return text;
+
+        text = await element.getAttribute('value');
+        if (text?.trim()) return text;
+
+        return '';
+    } catch (error) {
+        console.error('Error getting element text:', error);
+        return '';
+    }
+}
+
+// Helper function to get value using parser
+async function getValueFromParser(page, parserName, key) {
+    try {
+        console.log(`🔍 Processing ${parserName}`);
+        
+        // Parse input format "#parsers,items"
+        const [parserId, keyId] = parserName.split(',');
+        const cleanParserId = parserId.replace('#', '');
+        
+        console.log(`Looking for ${keyId} in ${cleanParserId}`);
+
+        // Get base locator from amazon.js
+        const baseLocator = await locatorManager.getLocator(cleanParserId, keyId);
+        
+        if (!baseLocator) {
+            throw new Error(`No locator found for ${keyId} in ${cleanParserId}`);
+        }
+
+        // Get the container element
+        const container = page.locator(baseLocator);
+        await container.waitFor({ state: 'visible', timeout: 30000 });
+
+        // Define search terms
+        const searchTerms = {
+            cart_total: ["Order total", "Total"],
+            items: ["Items:", "Item:", "Items"],
+            shipping_amount: ["Shipping & handling", "Shipping"],
+            sales_tax: ["Estimated tax", "Tax"],
+            discounts: ["Discount", "Savings", "-$"]
+        };
+
+        // Find matching element
+        const elements = await container.locator('tr, li').all();
+        let matchingText = '';
+
+        for (const element of elements) {
+            const text = await element.textContent();
+            const terms = searchTerms[keyId];
+            if (terms.some(term => text.includes(term))) {
+                matchingText = text.trim();
+                break;
+            }
+        }
+
+        if (!matchingText) {
+            throw new Error(`Could not find ${keyId} in the summary table`);
+        }
+
+        // Extract numeric value
+        let value = '0';
+        let numeric = 0;
+
+        if (matchingText.toLowerCase().includes('free')) {
+            value = 'FREE';
+            numeric = 0;
+        } else {
+            const valueMatch = matchingText.match(/\$?([-]?\d+,?\d*\.?\d*)/);
+            if (valueMatch) {
+                value = valueMatch[0];
+                numeric = parseFloat(valueMatch[1].replace(/,/g, ''));
+                
+                // Handle discounts
+                if (matchingText.includes('-') || keyId === 'discounts') {
+                    numeric = -Math.abs(numeric);
+                }
+            } else {
+                throw new Error(`No numeric value found in: ${matchingText}`);
+            }
+        }
+
+        console.log(`✅ Found ${keyId}:`, { value, numeric });
+        return {
+            value: value,
+            numeric: numeric,
+            locator: baseLocator
+        };
+
+    } catch (error) {
+        console.error(`❌ Error processing ${key}:`, error.message);
+        throw error;
+    }
+}
+
+
 module.exports = {
     getListValues,
     getCommonLocators,
-    handleElementAction
+    handleElementAction,
+    getSuffix,
+    getElementText,
+    getValueFromParser
 };

@@ -1,776 +1,887 @@
-import axios from 'axios';
-import path from 'path';
-import fs from 'fs';
+import { test, expect } from '@playwright/test';
 import { ai } from '@zerostep/playwright';
-import { expect } from '@playwright/test';
-import { getValueFromJson, convertToAiCommand } from './excelReader.js';
+import { convertToAiCommand } from './excelReader.js';
+const { locatorManager } = require('./locatorManager.js');
+import axios from 'axios';
+import { handleElementAction, getCommonLocators, getSuffix, getValueFromParser, getElementText } from './baseFunctions.js';
+import path from 'path';
+
+function getPageName(url) {
+    try {
+        return new URL(url).pathname.split('/').filter(Boolean).pop() || 'Homepage';
+    } catch {
+        return url;
+    }
+}
+
+function getBusinessValue(value) {
+    return value?.replace(/['"]/g, '').trim() || 'N/A';
+}
+
+function getFieldName(locator) {
+    return locator?.includes('=') ? locator.split('=').pop() : locator;
+}
 
 export class ActionHelper {
-    constructor() {
-        this.networkLogs = [];
+    constructor(page) {
+        this.page = page;
     }
 
-    async takeErrorScreenshot(page, functionName, error) {
-        try {
-            if (!page?.screenshot) {
-                throw new Error('Invalid page object provided');
-            }
+    async handleGoto(page, step, test) {
+        return await test.step(`Navigate to: ${step.locator}`, async () => {
+            try {
+                test.info().annotations.push({
+                    type: 'Navigation',
+                    description: `🌐 Navigating to: ${step.locator}`
+                });
 
-            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-            const screenshotsDir = path.join(process.cwd(), 'test-results', 'screenshots');
-            const screenshotPath = path.join(screenshotsDir, `${functionName}_error_${timestamp}.png`);
+                await page.goto(step.locator, {
+                    waitUntil: 'domcontentloaded',
+                    timeout: 60000
+                });
 
-            fs.mkdirSync(screenshotsDir, { recursive: true });
-            const buffer = await page.screenshot({ fullPage: true });
-
-            // Save to file
-            fs.writeFileSync(screenshotPath, buffer);
-
-            // Attach to test report if test object is available
-            if (page.test) {
-                await page.test.info().attach(`${functionName}_error`, {
-                    body: buffer,
+                // Capture page load state
+                const screenshot = await page.screenshot();
+                await test.info().attach('page-loaded', {
+                    body: screenshot,
                     contentType: 'image/png'
                 });
-            }
 
-            console.error('Error:', error.message);
-            return screenshotPath;
-        } catch (screenshotError) {
-            console.error('Screenshot failed:', screenshotError.message);
-        }
-    }
-
-    async handleGoto(page, step) {
-        try {
-            // Block image loading
-            await page.route('**/*.{png,jpg,jpeg,gif,webp,svg}', route => route.abort());
-
-            // Block other media if needed
-            await page.route('**/*.{mp4,webm,mp3,wav}', route => route.abort());
-
-            await page.setDefaultNavigationTimeout(60000);
-
-            const response = await page.goto(step.locator, {
-                waitUntil: 'domcontentloaded',
-                timeout: 60000
-            });
-
-            if (!response?.ok()) {
-                throw new Error(`Navigation failed: ${response?.status() || 'no response'}`);
-            }
-
-            await page.waitForSelector('body', { timeout: 60000 });
-
-            return true;
-        } catch (error) {
-            await this.takeErrorScreenshot(page, 'handleGoto', error);
-            throw error;
-        }
-    }
-
-    async handleAssert(page, step) {
-        try {
-            const element = await page.locator(step.locator);
-            await element.waitFor({ state: 'visible', timeout: 5000 });
-            await expect(element).toHaveText(step.value);
-        } catch (error) {
-            await this.takeErrorScreenshot(page, 'handleAssert', error);
-            throw error;
-        }
-    }
-
-    async handleRequest(step, i) {
-        try {
-            if (!step.locator) {
-                throw new Error('URL (locator) is required for API request');
-            }
-
-            const url = step.locator.startsWith('http') ? step.locator : `https://${step.locator}`;
-
-            console.log('Making API request:', {
-                url,
-                method: step.method || 'POST',
-                headers: step.headers,
-                body: step.value
-            });
-
-            const response = await axios({
-                method: step.method || 'POST',
-                url,
-                data: step.value ? JSON.parse(step.value) : undefined,
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                timeout: 30000,
-                validateStatus: () => true
-            });
-
-            console.log('API Response:', {
-                status: response.status,
-                statusText: response.statusText,
-                data: response.data
-            });
-
-            this.networkLogs.push({
-                timestamp: new Date().toISOString(),
-                step: i + 1,
-                request: {
-                    url,
-                    method: step.method || 'POST',
-                    headers: step.headers,
-                    body: step.value
-                },
-                response: {
-                    status: response.status,
-                    statusText: response.statusText,
-                    headers: response.headers,
-                    data: response.data
-                }
-            });
-
-            await this.saveLogs();
-            return response;
-
-        } catch (error) {
-            console.error('API Request failed:', {
-                url: step.locator,
-                method: step.method || 'POST',
-                error: error.message,
-                response: error.response?.data
-            });
-
-            this.networkLogs.push({
-                timestamp: new Date().toISOString(),
-                step: i + 1,
-                request: {
-                    url: step.locator,
-                    method: step.method || 'POST',
-                    headers: step.headers,
-                    body: step.value
-                },
-                error: {
-                    message: error.message,
-                    status: error.response?.status,
-                    statusText: error.response?.statusText,
-                    data: error.response?.data
-                }
-            });
-
-            await this.saveLogs();
-            throw error;
-        }
-    }
-
-    async saveLogs() {
-        try {
-            const logsDir = path.join(process.cwd(), 'test-results');
-            if (!fs.existsSync(logsDir)) {
-                fs.mkdirSync(logsDir, { recursive: true });
-            }
-
-            const logPath = path.join(logsDir, 'network-logs.json');
-            fs.writeFileSync(
-                logPath,
-                JSON.stringify({ networkLogs: this.networkLogs }, null, 2)
-            );
-            console.log(`Logs saved to: ${logPath}`);
-        } catch (error) {
-            console.error('Error saving logs:', error);
-        }
-    }
-
-    // Move handleResponse inside the class
-    async handleResponse(page, test, step, path_dir, file_path) {
-        const filePath = path.join(process.cwd(), path_dir, file_path);
-        const token = getValueFromJson(filePath, 'networkLogs.0.response.data.token');
-        console.log('Token:', token);
-        const status = getValueFromJson(filePath, 'networkLogs.0.response.status');
-        console.log('Status:', status);
-        const url = getValueFromJson(filePath, 'networkLogs.0.request.url');
-        console.log('URL:', url);
-        await ai(`Enter the '${token}' into '${step.locator}'`, { page, test });
-    }
-
-    async handleScrollTo(page, step) {
-        try {
-            const element = await page.locator(`text=${step.locator}`).first();
-            await element.waitFor({ state: 'visible', timeout: 5000 });
-            
-            // Use evaluate for more control over scroll behavior
-            await page.evaluate(async (el) => {
-                el.scrollIntoView({
-                    behavior: 'smooth',
-                    block: 'nearest',    // Vertical alignment
-                    inline: 'center'     // Horizontal alignment
+                test.info().annotations.push({
+                    type: 'Navigation Success',
+                    description: `✅ Successfully navigated to: ${step.locator}`
                 });
-            }, await element.elementHandle());
-    
-            await page.waitForTimeout(1000); // Wait for scroll to complete
-        } catch (error) {
-            console.warn(`Initial scroll attempt failed: ${error.message}`);
-            await page.waitForTimeout(1000);
-            try {
-                await this.retryScrollTo(page, step);
-            } catch (retryError) {
-                await this.takeErrorScreenshot(page, 'handleScrollTo', retryError);
-                throw retryError;
+            } catch (error) {
+                test.info().annotations.push({
+                    type: 'Navigation Failed',
+                    description: `❌ Navigation failed: using playwright: ${step.locator}`
+                });
+                throw error;
             }
-        }
+        });
     }
 
-    async handleOAuthClick(page, step) {
-        const authLogs = [];
-        const logsDir = 'test-results/auth-logs';
-        
-        try {
-            // Create logs directory if it doesn't exist
-            if (!fs.existsSync(logsDir)) {
-                fs.mkdirSync(logsDir, { recursive: true });
-            }
-    
-            // Set up request interception
-            await page.route('**/*', async route => {
-                const request = route.request();
-                const url = request.url();
-                
-                if (url.includes('oauth') || url.includes('auth') || url.includes('token') || url.includes('login')) {
-                    const timestamp = new Date().toISOString();
-                    const logEntry = {
-                        timestamp,
-                        type: 'request',
-                        url,
-                        method: request.method(),
-                        headers: request.headers(),
-                        postData: request.postData()
-                    };
-                    
-                    authLogs.push(logEntry);
-                    console.log('Auth Request:', logEntry);
-    
-                    // Capture response
-                    const response = await route.fetch();
+    async handleAssert(page, step, test) {
+        return await test.step(`Assert: ${step.value}`, async () => {
+            try {
+                if (page.isClosed()) return;
+
+                let element;
+                let elementLocator;
+                let expectedText = step.value;
+                let targetIndex = 1; // default to first element
+
+                // Check if value contains index specification (e.g., "2:Expected Text")
+                if (step.value && step.value.includes(':')) {
+                    const [index, text] = step.value.split(':').map(s => s.trim());
+                    targetIndex = parseInt(index) || 1;
+                    expectedText = text;
+                }
+
+                // Handle parser-based locators (#parserName,key)
+                if (step.locator?.startsWith('#')) {
+                    const [parserName, keyName] = step.locator.substring(1).split(',').map(s => s.trim());
+
+                    if (!parserName || !keyName) {
+                        test.info().annotations.push({
+                            type: 'Error',
+                            description: `❌ Incomplete format
+• Expected: #parserName,key
+• Found: ${step.locator}
+• Missing: ${!parserName ? 'Parser name' : 'Key name'}`
+                        });
+                        return false;
+                    }
+
+                    // Parser validation
                     try {
-                        const responseBody = await response.text();
-                        const responseLogEntry = {
-                            timestamp,
-                            type: 'response',
-                            url,
-                            status: response.status(),
-                            headers: response.headers(),
-                            body: responseBody
-                        };
-                        authLogs.push(responseLogEntry);
-                        console.log('Auth Response:', responseLogEntry);
-                    } catch (e) {
-                        console.warn('Could not capture response body:', e.message);
+                        elementLocator = await locatorManager.getLocator(parserName, keyName);
+                        if (!elementLocator) {
+                            test.info().annotations.push({
+                                type: 'ParserError',
+                                description: `❌ Parser configuration
+• Parser: ${parserName}.js
+• Key: ${keyName}
+• Issue: Key not found in parser file`
+                            });
+                            return false;
+                        }
+                    } catch (error) {
+                        test.info().annotations.push({
+                            type: 'Parser Error',
+                            description: `❌ Parser error
+• File: ${parserName}.js
+• Issue: Unable to read parser file`
+                        });
+                        return false;
+                    }
+                } else {
+                    // Handle direct locators (xpath, css, etc.)
+                    elementLocator = step.locator;
+                }
+
+                // Element validation
+                try {
+                    const allElements = await page.locator(elementLocator).all();
+                    const count = allElements.length;
+                    
+                    if (count === 0) {
+                        test.info().annotations.push({
+                            type: 'Assertion - DOM Parser Error',
+                            description: `❌ No elements found with locator: ${elementLocator}`
+                        });
+                        return false;
+                    }
+
+                    // Get text content and visibility of all elements
+                    const elementTexts = await Promise.all(
+                        allElements.map(async (el) => {
+                            const text = (await el.textContent() || '').trim();
+                            const isVisible = await el.isVisible();
+                            return { text, isVisible, element: el };
+                        })
+                    );
+
+                    // Filter visible elements
+                    const visibleElements = elementTexts.filter(e => e.isVisible);
+                    
+                    if (targetIndex > visibleElements.length) {
+                        test.info().annotations.push({
+                            type: 'Assertion Error',
+                            description: `❌ Index out of range
+• Locator: ${elementLocator}
+• Requested: Element #${targetIndex}
+• Available: ${visibleElements.length} visible elements
+• Total elements: ${count}
+• Visible texts: ${visibleElements.map(e => `"${e.text}"`).join(', ')}
+• Suggestion: Use index between 1 and ${visibleElements.length}`
+                        });
+                        return false;
+                    }
+
+                    // Get target element
+                    const targetElement = visibleElements[targetIndex - 1];
+                    const actualText = targetElement.text;
+
+                    // Content validation
+                    if (!actualText) {
+                        test.info().annotations.push({
+                            type: 'Assertion Error',
+                            description: `❌ Empty content
+• Locator: ${elementLocator}
+• Index: ${targetIndex}
+• Expected: "${expectedText}"
+• Found: Empty element`
+                        });
+                        return false;
+                    }
+
+                    try {
+                        await expect(actualText).toContain(expectedText);
+                        
+                        // Success case
+                        test.info().annotations.push({
+                            type: 'Assertion Success',
+                            description: `✅ Assertion passed
+• Locator: ${elementLocator}
+• Index: ${targetIndex} of ${visibleElements.length}
+• Expected: "${expectedText}"
+• Found: "${actualText}"`
+                        });
+                        return true;
+                    } catch (error) {
+                        test.info().annotations.push({
+                            type: 'Assertion Error',
+                            description: `❌ Text mismatch
+• Locator: ${elementLocator}
+• Index: ${targetIndex} of ${visibleElements.length}
+• Expected: "${expectedText}"
+• Found: "${actualText}"
+• All visible texts: ${visibleElements.map(e => `"${e.text}"`).join(', ')}`
+                        });
+                        return false;
+                    }
+
+                } catch (error) {
+                    test.info().annotations.push({
+                        type: 'Assertion Error',
+                        description: `❌ Assertion failed
+• Locator: ${elementLocator}
+• Error: ${error.message}`
+                    });
+                    return false;
+                }
+            } catch (error) {
+                test.info().annotations.push({
+                    type: 'Assertion Error',
+                    description: `❌ Assertion failed
+• Locator: ${step.locator}
+• Error: ${error.message}`
+                });
+                return false;
+            }
+        });
+    }
+
+    async handleCartAssert(page, step, test) {
+        return await test.step(`Cart Assert: ${step.value}`, async () => {
+            let keyName, parserName;
+            try {
+                if (page.isClosed()) return;
+
+                if (!step.locator?.startsWith('#')) {
+                    throw new Error(`Invalid assert format: Locator must start with # but got: ${step.locator}`);
+                }
+
+                [parserName, keyName] = step.locator.substring(1).split(',').map(s => s.trim());
+
+                if (!parserName || !keyName) {
+                    throw new Error(`Invalid parser format. Expected #parserName,key but got: ${step.locator}`);
+                }
+
+                // Get the locator from the parser
+                let elementLocator;
+                try {
+                    elementLocator = await locatorManager.getLocator(parserName, keyName);
+                    if (!elementLocator) {
+                        // Combine both error messages into one annotation
+                        test.info().annotations.push({
+                            type: 'Cart Assertion Failed',
+                            description: `❌ Cart assertion failed:
+• Parser: ${parserName}
+• Key: ${keyName}
+• Error: Element not found in parser configuration
+• Locator: ${step.locator}
+• Action: ${step.action}`
+                        });
+                        throw new Error(`Element ${keyName} not found in parser ${parserName}`);
+                    }
+                } catch (error) {
+                    // Single error annotation for parser-related failures
+                    test.info().annotations.push({
+                        type: 'Cart Assertion Failed',
+                        description: `❌ Cart assertion failed:
+• Parser: ${parserName}
+• Key: ${keyName}
+• Error: ${error.message}
+• Locator: ${step.locator}
+• Action: ${step.action}`
+                    });
+                    throw error;
+                }
+
+                // Find all instances of the element
+                const elements = await page.locator(elementLocator).all();
+                if (elements.length === 0) {
+                    test.info().annotations.push({
+                        type: 'Assertion - DOM Parser Error',
+                        description: `❌ No elements found with locator: ${elementLocator}`
+                    });
+                    throw new Error(`No elements found with locator: ${elementLocator}`);
+                }
+
+                // Log if multiple instances found
+                if (elements.length > 1) {
+                    test.info().annotations.push({
+                        type: 'Multiple Elements',
+                        description: `Found ${elements.length} instances of locator: ${elementLocator}`
+                    });
+                }
+
+                // Process each element's text content
+                let foundValue = null;
+                for (const element of elements) {
+                    let text = await element.textContent() || '';
+                    // Clean up the text by removing unwanted characters and HTML
+                    text = text.replace(/[\n\r\t]/g, '')
+                        .replace(/<[^>]*>/g, '')
+                        .trim();
+
+                    if (text) {
+                        // Extract numeric value if present
+                        const numericMatch = text.match(/[-]?\$?[\d,]+\.?\d*/);
+                        if (numericMatch) {
+                            const numericValue = parseFloat(numericMatch[0].replace(/[$,]/g, ''));
+                            foundValue = {
+                                text: text,
+                                numeric: numericValue,
+                                value: text
+                            };
+                            break;
+                        }
                     }
                 }
-                await route.continue();
-            });
-    
-            // Click the OAuth button
-            const element = await page.locator(step.locator).first();
-            await element.waitFor({ state: 'visible', timeout: 5000 });
-    
-            // Click and wait for navigation
-            await Promise.all([
-                page.waitForNavigation({ timeout: 30000 }).catch(() => {}),
-                element.click({ timeout: 5000 })
-            ]);
-    
-            // Wait for potential redirects
-            await page.waitForTimeout(3000);
-    
-            // Capture final page state
-            const finalState = await page.evaluate(() => ({
-                url: window.location.href,
-                localStorage: Object.keys(localStorage).reduce((acc, key) => {
-                    acc[key] = localStorage.getItem(key);
-                    return acc;
-                }, {}),
-                sessionStorage: Object.keys(sessionStorage).reduce((acc, key) => {
-                    acc[key] = sessionStorage.getItem(key);
-                    return acc;
-                }, {}),
-                cookies: document.cookie
-            }));
-    
-            // Add final state to logs
-            authLogs.push({
-                timestamp: new Date().toISOString(),
-                type: 'final_state',
-                ...finalState
-            });
-    
-            // Save logs to file
-            const logFileName = 'auth-log-new.json';
-            const myfilepath = path.join(process.cwd(), logsDir, logFileName);
-            
-            fs.writeFileSync(myfilepath, JSON.stringify(authLogs, null, 2));
-            console.log(`Auth logs saved to: ${logFileName}`);
-    
-            await page.waitForTimeout(1000);
-    
-            // Read the saved file and parse it
-            const nfilepath = path.join(process.cwd(), logsDir, logFileName);
-            const jsonData = fs.readFileSync(nfilepath, 'utf8');
-            const parsedLogs = JSON.parse(jsonData);
-    
-            // Find the final_state entry
-            const finalStateEntry = parsedLogs.find(entry => entry.type === "final_state");
-            
-            if (!finalStateEntry || !finalStateEntry.localStorage) {
-                throw new Error('No localStorage data found in logs');
-            }
-    
-            // Extract values directly from localStorage
-            const client_id = finalStateEntry.localStorage.client_id;
-            const signInName = finalStateEntry.localStorage.signInName;
-            const redirect_uri = finalStateEntry.localStorage.RedirectUri;
-    
-            console.log('Extracted values:', {
-                client_id,
-                signInName,
-                redirect_uri
-            });
 
-            console.log("url:",url);
-    
-            
-            // Validate values
-            if (!client_id || !signInName || !redirect_uri) {
-                console.error('Missing required parameters:', {
-                    client_id: !!client_id,
-                    signInName: !!signInName,
-                    redirect_uri: !!redirect_uri
-                });
-                throw new Error('Missing required OAuth parameters');
-            }
-    
-            // Construct URL properly
-            const url = new URL(redirect_uri);
-            url.searchParams.append('client_id', client_id);
-            url.searchParams.append('signInName', signInName);
-            
-            console.log('Navigating to:', url.toString());
-    
-            await page.goto(url.toString(), {
-                waitUntil: 'domcontentloaded',
-                timeout: 30000
-            });
-    
-            await page.waitForTimeout(2000);
-            return true;
-    
-        } catch (error) {
-            console.error('OAuth click error:', error.message);
-            
-            // Save error logs
-            const errorLogEntry = {
-                timestamp: new Date().toISOString(),
-                type: 'error',
-                message: error.message,
-                stack: error.stack
-            };
-            authLogs.push(errorLogEntry);
-            
-            const errorLogFileName = `auth-error-log-new.json`;
-            fs.writeFileSync(
-                path.join(process.cwd(), logsDir, errorLogFileName),
-                JSON.stringify(authLogs, null, 2)
-            );
-    
-            await this.takeErrorScreenshot(page, 'handleOAuthClick', error);
-            throw error;
-        }
-    }
-
-    async handleClickTo(page, step) {
-        try {
-            const element = await page.locator(`text=${step.locator}`).first();
-            await element.waitFor({ state: 'visible', timeout: 5000 });
-    
-            // Add small random delay before click
-            await page.waitForTimeout(Math.random() * 500 + 200);
-    
-            // Click with multiple wait strategies
-            await Promise.all([
-                // Wait for URL change
-                page.waitForURL('**/*', { timeout: 30000 })
-                    .catch(e => console.warn('URL change timeout:', e.message)),
-                
-                // Wait for DOM content
-                page.waitForLoadState('domcontentloaded', { timeout: 30000 })
-                    .catch(e => console.warn('Load state timeout:', e.message)),
-                
-                // Wait for new elements that typically appear after navigation
-                page.waitForSelector('body', { timeout: 30000 })
-                    .catch(e => console.warn('Body selector timeout:', e.message)),
-    
-                // Perform the click
-                element.click({ timeout: 5000 })
-            ]);
-    
-            // Additional stability checks
-            await Promise.race([
-                page.waitForLoadState('load', { timeout: 10000 }),
-                page.waitForTimeout(2000)
-            ]);
-    
-        } catch (error) {
-            console.warn(`Click attempt failed: ${error.message}`);
-            try {
-                await this.retryClickTo(page, step);
-            } catch (retryError) {
-                await this.takeErrorScreenshot(page, 'handleClickTo', retryError);
-                throw retryError;
-            }
-        }
-    }
-
-    async handleFillData(page, step) {
-    try {
-        const element = await page.locator(step.locator);
-        await element.waitFor({ state: 'visible', timeout: 5000 });
-
-        // Clear existing value first
-        await element.clear();
-
-        // Type the value character by character with random delays
-        for (const char of step.value) {
-            await element.type(char, { delay: Math.random() * 100 + 50 }); // Random delay between 50-150ms
-        }
-
-        await this.waitForPageLoad(page);
-    } catch (error) {
-        console.warn(`Initial fill attempt failed: ${error.message}`);
-        try {
-            await this.retryFillData(page, step);
-        } catch (retryError) {
-            await this.takeErrorScreenshot(page, 'handleFillData', retryError);
-            throw retryError;
-        }
-    }
-}
-
-    async handlePressKey(page, step) {
-    try {
-        const element = await page.locator(step.locator);
-        await element.waitFor({ state: 'visible', timeout: 5000 });
-        await element.press(step.value);
-        await this.waitForPageLoad(page);
-    } catch (error) {
-        console.warn(`Initial key press attempt failed: ${error.message}`);
-        try {
-            await this.retryPressKey(page, step);
-        } catch (retryError) {
-            await this.takeErrorScreenshot(page, 'handlePressKey', retryError);
-            throw retryError;
-        }
-    }
-}
-
-    async handleClickLoc(page, step) {
-    try {
-        // Try to find element by role first (button, link, etc.)
-        const element = await page.locator(step.locator);
-        await element.waitFor({ state: 'visible', timeout: 5000 });
-
-        // Enhanced click with multiple navigation event listeners
-        await Promise.all([
-            // page.waitForNavigation({ waitUntil: 'networkidle', timeout: 30000 }).catch(() => {}),
-            page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => { }),
-            element.click({ timeout: 5000, force: true })
-        ]);
-
-        // Additional wait to ensure page stability
-        await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => { });
-        await page.waitForTimeout(1000);
-
-    } catch (error) {
-        await this.takeErrorScreenshot(page, 'handleClickLoc', error);
-        throw error;
-    }
-}
-
-    async handleCheckVisible(page, step) {
-    try {
-        const element = await page.locator(`text=${step.locator}`);
-        await element.waitFor({ state: 'visible', timeout: 30000 });
-    } catch (error) {
-        console.warn(`Initial visibility check failed: ${error.message}`);
-        try {
-            await this.retryCheckVisible(page, step);
-        } catch (retryError) {
-            await this.takeErrorScreenshot(page, 'handleCheckVisible', retryError);
-            throw retryError;
-        }
-    }
-}
-
-    async handleAiCommand(page, step, i, test) {
-    try {
-        await Promise.race([
-            Promise.all([
-                // Primary load check
-                page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch((e) => {
-                    console.warn('DOMContentLoaded warning:', e.message);
-                }),
-                
-                // Basic ready state check
-                page.waitForFunction(() => {
-                    return document.readyState === 'complete' 
-                        && !document.querySelector('[class*="loading"]')
-                        && !document.querySelector('[class*="spinner"]')
-                        && !document.querySelector('.loader');
-                }, { timeout: 30000 }).catch((e) => {
-                    console.warn('Ready state check warning:', e.message);
-                }),
-        
-                this.waitForPageLoad(page)
-            ]),
-        
-            // Fallback - proceed after 30 seconds if page is at least partially loaded
-            new Promise((resolve) => {
-                setTimeout(() => {
-                    page.evaluate(() => {
-                        return document.body !== null && document.readyState !== 'loading';
-                    }).then(isBasicallyLoaded => {
-                        if (isBasicallyLoaded) resolve();
+                if (!foundValue) {
+                    test.info().annotations.push({
+                        type: 'DOM Parser Data Error',
+                        description: `❌ Could not extract valid value from element with locator: ${elementLocator}`
                     });
-                }, 30000);
-            })
-        ]);
-        
-        // Short delay for any final dynamic content
-        await page.waitForTimeout(1000);
-        const aiCommand = convertToAiCommand(step);
-        await page.waitForTimeout(1000);
-        console.log(`Executing AI command: ${step.locator}`);
-        await ai(aiCommand, { page, test });
-        console.log('AI command executed successfully');
-    } catch (error) {
-        // Take screenshot first
-        const screenshotPath = await this.takeErrorScreenshot(page, 'handleAiCommand', error);
+                    throw new Error(`Could not extract valid value from element with locator: ${elementLocator}`);
+                }
 
-        // // Create detailed error message
-        // const errorMessage = {
-        //     step: `Step ${i + 1}`,
-        //     command: step.locator,
-        //     error: error.message || 'Unknown error',
-        //     stack: error.stack || 'No stack trace',
-        //     screenshot: screenshotPath
-        // };
+                // Initialize cartValues if needed
+                if (!this.cartValues) {
+                    this.cartValues = {
+                        items: 0,
+                        discounts: 0,
+                        sales_tax: 0,
+                        shipping_amount: 0,
+                        cart_total: 0
+                    };
+                }
 
-        // console.error('AI Command failed:', errorMessage);
+                this.cartValues[keyName] = foundValue.numeric;
 
-        // // Create enhanced error with full details
-        // const enhancedError = new Error(`Step ${i + 1} failed: AI command could not be executed. Error: ${error.message || 'Unknown error'}`);
-        // enhancedError.originalError = error;
-        // enhancedError.details = errorMessage;
-        throw error;
-    }
+                test.info().annotations.push({
+                    type: 'Cart Assert Success',
+                    description: `✅ ${keyName} found from ${parserName}: ${foundValue.numeric} (Found in text: "${foundValue.text}")`
+                });
 
-    await page.waitForTimeout(2000);
-}
-
-async handleFileUpload(page, step) {
-    try {
-        if (!step.locator || !step.value) {
-            throw new Error('File upload requires both selector and filePath');
-        }
-
-        // First try to make the input visible if it's hidden
-        await page.evaluate((selector) => {
-            const input = document.querySelector(selector);
-            if (input) {
-                input.style.opacity = '1';
-                input.style.display = 'block';
-                input.style.visibility = 'visible';
-            }
-        }, step.locator);
-
-        // Wait for input with reduced visibility requirement
-        const fileInput = await page.locator(step.locator);
-        
-        // Set file even if element is hidden
-        await fileInput.setInputFiles(step.value, { force: true });
-
-        // Optional: Reset visibility
-        await page.evaluate((selector) => {
-            const input = document.querySelector(selector);
-            if (input) {
-                input.style.opacity = '';
-                input.style.display = '';
-                input.style.visibility = '';
-            }
-        }, step.locator);
-
-        await page.waitForTimeout(2000); // Wait for upload
-
-        return true;
-    } catch (error) {
-        console.error('File upload error:', error.message);
-        await this.takeErrorScreenshot(page, 'handleFileUpload', error);
-        throw error;
-    }
-}
-
-    // Retry methods with screenshot functionality
-    async retryScrollTo(page, step, maxRetries = 3) {
-    for (let i = 0; i < maxRetries; i++) {
-        try {
-            const element = await page.locator(`text=${step.locator}`).first();
-            await element.waitFor({ state: 'visible', timeout: 5000 });
-            await element.scrollIntoViewIfNeeded();
-            return;
-        } catch (error) {
-            if (i === maxRetries - 1) {
-                await this.takeErrorScreenshot(page, 'retryScrollTo', error);
+            } catch (error) {
+                // We don't need to add another annotation here since we already added one above
                 throw error;
             }
-            await page.waitForTimeout(1000 * Math.pow(2, i));
-        }
+        });
     }
-}
 
-    async retryClickTo(page, step, maxRetries = 3) {
-    for (let i = 0; i < maxRetries; i++) {
-        try {
-            const element = await page.locator(`text=${step.locator}`).first();
-            await element.waitFor({ state: 'visible', timeout: 5000 });
-            await element.click();
-            await this.waitForPageLoad(page);
-            return;
-        } catch (error) {
-            if (i === maxRetries - 1) {
-                await this.takeErrorScreenshot(page, 'retryClickTo', error);
+    async handleInputData(page, step, test) {
+        return await test.step(`Input: "${step.value}" into "${step.locator}"`, async () => {
+            try {
+                // Try with Playwright first
+                const element = await handleElementAction(page, step, 'fill', test);
+                if (!element) {
+                    throw new Error(`Input element not found: "${step.locator}"`);
+                }
+
+                try {
+                    await element.scrollIntoViewIfNeeded();
+                    await element.fill(step.value);
+                    
+                    test.info().annotations.push({
+                        type: 'Input Success',
+                        description: `⚡ Input handled by Playwright: "${step.value}" into "${step.locator}"`
+                    });
+                    return;
+                } catch (inputError) {
+                    throw new Error(`Element found but input failed: ${inputError.message}`);
+                }
+
+            } catch (actionError) {
+                test.info().annotations.push({
+                    type: 'Action Failed',
+                    description: `⚠️ Input attempt failed: on ${step.locator} using Playwright`
+                });
+
+                test.info().annotations.push({
+                    type: 'Fallback',
+                    description: `⚠️ Falling back to Zerostep for input: "${step.locator}"`
+                });
+
+                try {
+                    await this.handleAiCommand(page, {
+                        ...step,
+                        action: 'type',
+                        additionalContext: `Type "${step.value}" into field labeled or containing text "${step.locator}"`
+                    }, test);
+
+                } catch (fallbackError) {
+                    test.info().annotations.push({
+                        type: 'Fallback Failed',
+                        description: `❌ Zerostep fallback failed: ${fallbackError.message}`
+                    });
+                    throw fallbackError;
+                }
+            }
+        });
+    }
+
+    async handleTextBasedClick(page, step, test) {
+        return await test.step(`Click: "${step.locator}"`, async () => {
+            try {
+                test.info().annotations.push({
+                    type: 'Click Start',
+                    description: `🖱️ Attempting to click: "${step.locator}"`
+                });
+
+                const element = await handleElementAction(page, step, 'click', test);
+                if (!element) {
+                    throw new Error('Element not found');
+                }
+
+                // Capture before state
+                await test.info().attach('before-click', {
+                    body: await page.screenshot(),
+                    contentType: 'image/png'
+                });
+
+                try {
+                    await element.scrollIntoViewIfNeeded();
+                    await page.waitForTimeout(1000);
+
+                    const isVisible = await element.isVisible();
+                    if (!isVisible) {
+                        throw new Error(`Element "${step.locator}" is not visible after scroll`);
+                    }
+
+                    await element.click({ timeout: 5000 });
+
+                    // Capture after state
+                    await page.waitForTimeout(500);
+                    await test.info().attach('after-click', {
+                        body: await page.screenshot(),
+                        contentType: 'image/png'
+                    });
+
+                    test.info().annotations.push({
+                        type: 'Click Success',
+                        description: `✅ Successfully clicked using Playwright: "${step.locator}"`
+                    });
+                    return;
+
+                } catch (clickError) {
+                    throw new Error(`Click attempt failed: ${clickError.message}`);
+                }
+
+            } catch (actionError) {
+                test.info().annotations.push({
+                    type: 'Action Failed',
+                    description: `⚠️ Click attempt failed: ${actionError.message} using Playwright`
+                });
+
+                test.info().annotations.push({
+                    type: 'Fallback',
+                    description: `⚠️ Falling back to Zerostep for click: "${step.locator}"`
+                });
+
+                try {
+                    await this.handleAiCommand(page, {
+                        ...step,
+                        action: 'click',
+                        additionalContext: `Click on ${step.locatorType} element containing text or label "${step.locator}"`
+                    }, test);
+                    
+                } catch (fallbackError) {
+                    test.info().annotations.push({
+                        type: 'Fallback Failed',
+                        description: `❌ Zerostep click failed: ${fallbackError.message}`
+                    });
+                    throw fallbackError;
+                }
+            }
+        });
+    }
+    
+    async handleCheckVisible(page, step, test) {
+        return await test.step(`Check visibility: "${step.locator}"`, async () => {
+            try {
+                const element = await handleElementAction(page, step, 'check', test);
+                if (!element) {
+                    throw new Error(`Element not found: "${step.locator}"`);
+                }
+
+                try {
+                    await element.waitFor({ state: 'visible', timeout: 5000 });
+                    
+                    test.info().annotations.push({
+                        type: 'Visibility Success',
+                        description: `⚡ Visibility check handled by Playwright: "${step.locator}"`
+                    });
+                    return true;
+                } catch (visibilityError) {
+                    throw new Error(`Element found but not visible: ${visibilityError.message}`);
+                }
+
+            } catch (actionError) {
+                test.info().annotations.push({
+                    type: 'Action Failed',
+                    description: `⚠️ Visibility check failed: ${actionError.message} using Playwright`
+                });
+
+                test.info().annotations.push({
+                    type: 'Fallback',
+                    description: `⚠️ Falling back to Zerostep for visibility check: "${step.locator}"`
+                });
+
+                try {
+                    await this.handleAiCommand(page, {
+                        ...step,
+                        action: 'waitfortext',
+                        additionalContext: `Wait for ${step.locatorType} element containing text "${step.locator}" to be visible`
+                    }, test);
+
+                    return true;
+                } catch (fallbackError) {
+                    test.info().annotations.push({
+                        type: 'Fallback Failed',
+                        description: `❌ Zerostep visibility check failed: ${fallbackError.message}`
+                    });
+                    throw fallbackError;
+                }
+            }
+        });
+    }
+
+    async handleFileUpload(page, step, test) {
+        return await test.step(`Upload file: ${step.value}`, async () => {
+            try {
+                test.info().annotations.push({
+                    type: 'File Upload Start',
+                    description: `📁 Attempting to upload: ${step.value}`
+                });
+
+                if (!step.locator || !step.value) {
+                    throw new Error('File upload requires both selector and filePath');
+                }
+
+                // Make file input visible
+                await page.evaluate((selector) => {
+                    const input = document.querySelector(selector);
+                    if (input) {
+                        input.style.opacity = '1';
+                        input.style.display = 'block';
+                        input.style.visibility = 'visible';
+                    }
+                }, step.locator);
+
+                // Capture before state
+                await test.info().attach('before-upload', {
+                    body: await page.screenshot(),
+                    contentType: 'image/png'
+                });
+
+                const fileInput = await page.locator(step.locator);
+                await fileInput.setInputFiles(step.value, { force: true });
+
+                // Wait for upload
+                await page.waitForTimeout(1000);
+
+                // Capture after state
+                await test.info().attach('after-upload', {
+                    body: await page.screenshot(),
+                    contentType: 'image/png'
+                });
+
+                test.info().annotations.push({
+                    type: 'Upload Success',
+                    description: `✅ Successfully uploaded: ${step.value}`
+                });
+
+            } catch (error) {
+                test.info().annotations.push({
+                    type: 'Upload Failed',
+                    description: `❌ File upload failed: ${error.message}`
+                });
                 throw error;
             }
-            await page.waitForTimeout(1000 * Math.pow(2, i));
-        }
+        });
     }
-}
 
-    async retryFillData(page, step, maxRetries = 3) {
-    for (let i = 0; i < maxRetries; i++) {
-        try {
-            const element = await page.locator(step.locator);
-            await element.waitFor({ state: 'visible', timeout: 5000 });
-            await element.fill(step.value);
-            await this.waitForPageLoad(page);
-            return;
-        } catch (error) {
-            if (i === maxRetries - 1) {
-                await this.takeErrorScreenshot(page, 'retryFillData', error);
+    async handleRequest(step, test) {
+        return await test.step(`API Request: ${step.locator}`, async () => {
+            try {
+                test.info().annotations.push({
+                    type: 'API Request Start',
+                    description: `🌐 Making API request to: ${step.locator}`
+                });
+
+                const url = step.locator.startsWith('http') ? step.locator : `https://${step.locator}`;
+                const requestData = {
+                    method: step.method || 'POST',
+                    url,
+                    data: step.value ? JSON.parse(step.value) : undefined,
+                    headers: { 'Content-Type': 'application/json' },
+                    timeout: 30000,
+                    validateStatus: () => true
+                };
+
+                // Log request details
+                await test.info().attach('request-details', {
+                    contentType: 'application/json',
+                    body: Buffer.from(JSON.stringify(requestData, null, 2))
+                });
+
+                const response = await axios(requestData);
+
+                // Log response
+                await test.info().attach('response-details', {
+                    contentType: 'application/json',
+                    body: Buffer.from(JSON.stringify({
+                        status: response.status,
+                        statusText: response.statusText,
+                        data: response.data
+                    }, null, 2))
+                });
+
+                test.info().annotations.push({
+                    type: 'API Request Success',
+                    description: `✅ API request succeeded with status: ${response.status}`
+                });
+
+                return response;
+
+            } catch (error) {
+                test.info().annotations.push({
+                    type: 'API Request Failed',
+                    description: `❌ API request failed: ${error.message}`
+                });
+
+                await test.info().attach('error-details', {
+                    contentType: 'application/json',
+                    body: Buffer.from(JSON.stringify({
+                        error: error.message,
+                        response: error.response?.data
+                    }, null, 2))
+                });
+
                 throw error;
             }
-            await page.waitForTimeout(1000 * Math.pow(2, i));
-        }
+        });
     }
-}
 
-    async retryPressKey(page, step, maxRetries = 3) {
-    for (let i = 0; i < maxRetries; i++) {
-        try {
-            const element = await page.locator(step.locator);
-            await element.waitFor({ state: 'visible', timeout: 5000 });
-            await element.press(step.value);
-            await this.waitForPageLoad(page);
-            return;
-        } catch (error) {
-            if (i === maxRetries - 1) {
-                await this.takeErrorScreenshot(page, 'retryPressKey', error);
+    async handleAiCommand(page, step, test) {
+        return await test.step(`AI Command: ${step.action}`, async () => {
+            try {
+                const aiCommand = convertToAiCommand(step);
+                const startTime = Date.now();
+
+                test.info().annotations.push({
+                    type: 'AI Command Start',
+                    description: `🤖 Starting Zerostep command: ${step.action}`
+                });
+
+                // Execute AI command
+                await ai(aiCommand, { page, test });
+                const executionTime = Date.now() - startTime;
+
+                // Add both annotations to ensure proper counting
+                test.info().annotations.push(
+                    {
+                        type: 'Zerostep Success',  // Add this explicit type
+                        description: `✅ Action completed using Zerostep`
+                    }
+                );
+
+                return true;
+
+            } catch (error) {
+                test.info().annotations.push({
+                    type: 'AI Command Failed',
+                    description: `❌ Zerostep command failed: ${step.locator}`
+                });
                 throw error;
             }
-            await page.waitForTimeout(1000 * Math.pow(2, i));
-        }
+        });
     }
-}
 
-    async retryClickLoc(page, step, maxRetries = 3) {
-    for (let i = 0; i < maxRetries; i++) {
-        try {
-            const element = await page.locator(step.locator);
-            await element.waitFor({ state: 'visible', timeout: 5000 });
-            await element.click();
-            await this.waitForPageLoad(page);
-            return;
-        } catch (error) {
-            if (i === maxRetries - 1) {
-                await this.takeErrorScreenshot(page, 'retryClickLoc', error);
-                throw error;
+    async handleScroll(page, step, test) {
+        return await test.step(`Scroll: "${step.locator}"`, async () => {
+            const suffix = getSuffix(step.value);
+            const description = suffix ? 
+                `🔍 Attempting to scroll to ${suffix} "${step.locator} ${step.locator}"` : 
+
+            test.info().annotations.push({
+                type: 'Scroll Start',
+                description: description
+            });
+
+            try {
+                const element = await handleElementAction(page, step, 'scroll', test);
+                
+                if (!element) {
+                    throw new Error('Element not found');
+                }
+
+                // Capture before state
+                await test.info().attach('before-scroll', {
+                    body: await page.screenshot(),
+                    contentType: 'image/png'
+                });
+
+                // Get all elements matching the locator
+                const allElements = await page.locator(`${step.locatorType}:has-text("${step.locator}")`).all();
+                const count = allElements.length;
+                
+                test.info().annotations.push({
+                    type: 'Elements Found',
+                    description: `📍 Found ${count} matching elements`
+                });
+
+                const targetIndex = step.value ? (parseInt(step.value) - 1) : 0;
+
+                if (count === 0) {
+                    throw new Error(`No elements found matching "${step.locator}"`);
+                }
+
+                if (targetIndex >= count) {
+                    throw new Error(`Requested ${suffix} element but only found ${count} elements`);
+                }
+
+                const targetElement = allElements[targetIndex];
+
+                // Single scroll strategy using Playwright
+                await targetElement.scrollIntoViewIfNeeded();
+                await page.waitForTimeout(1000);
+
+                // Verify element is in viewport
+                const isVisible = await targetElement.isVisible();
+                if (!isVisible) {
+                    throw new Error(`${suffix} element not visible after scroll`);
+                }
+
+                // Capture after state
+                await test.info().attach('after-scroll', {
+                    body: await page.screenshot(),
+                    contentType: 'image/png'
+                });
+
+                test.info().annotations.push({
+                    type: 'Scroll Success',
+                    description: `✅ Successfully scrolled to ${suffix} element using Playwright`
+                });
+                return;
+
+            } catch (actionError) {
+                test.info().annotations.push({
+                    type: 'Action Failed',
+                    description: `⚠️ Scroll attempt failed: ${actionError.message} using Playwright`
+                });
+
+                test.info().annotations.push({
+                    type: 'Fallback',
+                    description: `⚠️ Falling back to Zerostep for scroll: "${step.locator}"`
+                });
+
+                try {
+                    await this.handleAiCommand(page, {
+                        ...step,
+                        action: 'scroll',
+                        additionalContext: `Scroll to the ${getSuffix(step.value) || 'first'} ${step.locatorType} element containing text "${step.locator}"`
+                    }, test);
+                    
+                } catch (fallbackError) {
+                    test.info().annotations.push({
+                        type: 'Fallback Failed',
+                        description: `❌ Zerostep scroll failed: ${fallbackError.message}`
+                    });
+                    throw fallbackError;
+                }
             }
-            await page.waitForTimeout(1000 * Math.pow(2, i));
-        }
+        });
     }
-}
 
-    async retryCheckVisible(page, step, maxRetries = 3) {
-    for (let i = 0; i < maxRetries; i++) {
-        try {
-            const element = await page.locator(`text=${step.locator}`);
-            await element.waitFor({ state: 'visible', timeout: 30000 });
-            return;
-        } catch (error) {
-            if (i === maxRetries - 1) {
-                await this.takeErrorScreenshot(page, 'retryCheckVisible', error);
-                throw error;
+    async handleKeyboardAction(page, step, test) {
+        return await test.step(`Keyboard Action: ${step.value}`, async () => {
+            try {
+                const keyName = step.value.toUpperCase();
+                
+                // Try with Playwright first
+                try {
+                    switch (keyName) {
+                        case 'ENTER':
+                            await page.keyboard.press('Enter');
+                            break;
+                        case 'TAB':
+                            await page.keyboard.press('Tab');
+                            break;
+                        case 'ESCAPE':
+                            await page.keyboard.press('Escape');
+                            break;
+                        case 'ARROWUP':
+                            await page.keyboard.press('ArrowUp');
+                            break;
+                        case 'ARROWDOWN':
+                            await page.keyboard.press('ArrowDown');
+                            break;
+                        case 'ARROWLEFT':
+                            await page.keyboard.press('ArrowLeft');
+                            break;
+                        case 'ARROWRIGHT':
+                            await page.keyboard.press('ArrowRight');
+                            break;
+                        case 'BACKSPACE':
+                            await page.keyboard.press('Backspace');
+                            break;
+                        case 'DELETE':
+                            await page.keyboard.press('Delete');
+                            break;
+                        default:
+                            throw new Error(`Unsupported key action: ${keyName}`);
+                    }
+
+                    const successMessage = `⚡ Keyboard action handled by Playwright: "${keyName}"`;
+                    console.log(successMessage);
+                    test.info().annotations.push({
+                        type: 'Keyboard Action Success',
+                        description: successMessage
+                    });
+                    return;
+                } catch (error) {
+                    const playwrightError = `❌ Playwright keyboard action failed: ${error.message}`;
+                    console.log(playwrightError);
+                    test.info().annotations.push({
+                        type: 'Keyboard Action Failed',
+                        description: playwrightError
+                    });
+
+                    // Fallback to Zerostep
+                    const zerostepMessage = `🤖 Attempting keyboard action with Zerostep: "${keyName}"`;
+                    console.log(zerostepMessage);
+                    test.info().annotations.push({
+                        type: 'Keyboard Fallback',
+                        description: zerostepMessage
+                    });
+
+                    try {
+                        await this.handleAiCommand(page, {
+                            ...step,
+                            action: 'press',
+                            additionalContext: `Press keyboard key "${keyName}"`
+                        }, test);
+
+                        const successMessage = `✅ Keyboard action handled by Zerostep: "${keyName}"`;
+                        console.log(successMessage);
+                        test.info().annotations.push({
+                            type: 'Keyboard Action Success',
+                            description: successMessage
+                        });
+                        return;
+                    } catch (zerostepError) {
+                        const finalError = `❌ Keyboard action failed with both Playwright and Zerostep: "${keyName}"`;
+                        console.log(finalError);
+                        test.info().annotations.push({
+                            type: 'Keyboard Action Failed',
+                            description: finalError
+                        });
+                        throw new Error(finalError);
+                    }
+                }
+            } catch (error) {
+                test.info().annotations.push({
+                    type: 'Action Failed',
+                    description: `⚠️ Keyboard action failed: ${error.message} using Playwright`
+                });
+
+                test.info().annotations.push({
+                    type: 'Fallback',
+                    description: `⚠️ Falling back to Zerostep for keyboard action: "${step.value}"`
+                });
+
+                try {
+                    await this.handleAiCommand(page, {
+                        ...step,
+                        action: 'press',
+                        additionalContext: `Press keyboard key "${step.value}"`
+                    }, test);
+
+                } catch (fallbackError) {
+                    test.info().annotations.push({
+                        type: 'Fallback Failed',
+                        description: `❌ Zerostep keyboard action failed: ${fallbackError.message}`
+                    });
+                    throw fallbackError;
+                }
             }
-            await page.waitForTimeout(1000 * Math.pow(2, i));
-        }
+        });
     }
-}
-
-    // Helper methods
-    async waitForPageLoad(page) {
-    await Promise.race([
-        page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => { }),
-        page.waitForTimeout(2000)
-    ]);
-}
-
-logNetworkRequest(logEntry) {
-    this.networkLogs.push(logEntry);
-    this.saveNetworkLogs();
-}
-
-saveNetworkLogs() {
-    const logsDir = path.join(process.cwd(), 'test-results');
-    if (!fs.existsSync(logsDir)) {
-        fs.mkdirSync(logsDir, { recursive: true });
-    }
-
-    fs.writeFileSync(
-        path.join(logsDir, 'last-run.json'),
-        JSON.stringify({ networkLogs: this.networkLogs }, null, 2)
-    );
-}
-
-handleRequestError(error, step, stepIndex) {
-    console.error('API Request failed:', {
-        url: step.locator,
-        method: step.method || 'POST',
-        error: error.message,
-        response: error.response?.data
-    });
-
-    this.logNetworkRequest({
-        timestamp: new Date().toISOString(),
-        step: stepIndex + 1,
-        request: {
-            url: step.locator,
-            method: step.method || 'POST',
-            headers: step.headers,
-            body: step.value
-        },
-        error: {
-            message: error.message,
-            status: error.response?.status,
-            statusText: error.response?.statusText,
-            data: error.response?.data
-        }
-    });
-}
 }
