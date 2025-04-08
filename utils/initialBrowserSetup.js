@@ -574,7 +574,6 @@ const initialBrowserSetup = {
                 return !await this.isChallengePage(page);
             }
             
-<<<<<<< HEAD
             // Check specifically for slider puzzle
             const hasSliderPuzzle = await page.locator('text=Slide right to complete the puzzle').isVisible()
               .catch(() => false);
@@ -587,8 +586,6 @@ const initialBrowserSetup = {
                 }
             }
             
-=======
->>>>>>> 953b520103c0ce769549fadb643f13de60980ab7
             return false;
         } catch (error) {
             console.warn('Error in antibot challenge handling:', error);
@@ -626,11 +623,7 @@ const initialBrowserSetup = {
     async applyAntibotEvasion(page) {
         try {
             // 1. Simulate human-like behavior
-<<<<<<< HEAD
             await this.simulateAdvancedHumanBehavior(page);
-=======
-            await this.simulateHumanBehavior(page);
->>>>>>> 953b520103c0ce769549fadb643f13de60980ab7
             
             // 2. Inject antibot evasion scripts
             await page.evaluate(() => {
@@ -708,44 +701,6 @@ const initialBrowserSetup = {
         }
     },
     
-<<<<<<< HEAD
-=======
-    // Simulate human-like behavior to help bypass bot detection
-    async simulateHumanBehavior(page) {
-        try {
-            // Randomize mouse movements
-            const viewportSize = page.viewportSize();
-            if (viewportSize) {
-                // Initial mouse movement to center
-                await page.mouse.move(
-                    viewportSize.width / 2,
-                    viewportSize.height / 2
-                );
-                
-                // Random movements
-                for (let i = 0; i < 3; i++) {
-                    const x = Math.floor(Math.random() * viewportSize.width);
-                    const y = Math.floor(Math.random() * viewportSize.height);
-                    await page.mouse.move(x, y, { steps: 5 });
-                    await page.waitForTimeout(Math.random() * 300 + 100);
-                }
-            }
-            
-            // Light scrolling
-            await page.evaluate(() => {
-                window.scrollBy({
-                    top: 100 + Math.floor(Math.random() * 200),
-                    behavior: 'smooth'
-                });
-            });
-            
-            await page.waitForTimeout(500);
-        } catch (error) {
-            console.warn('Error in human behavior simulation:', error);
-        }
-    },
-    
->>>>>>> 953b520103c0ce769549fadb643f13de60980ab7
     // Apply more extensive evasion techniques for persistent challenges
     async applyExtendedEvasionTechniques(page) {
         try {
@@ -929,15 +884,93 @@ const initialBrowserSetup = {
     },
 };
 
-module.exports = initialBrowserSetup;
-module.exports.createBrowserSession = createBrowserSession;
-module.exports.handleSliderPuzzle = handleSliderPuzzle;
+/**
+ * Handles slider puzzle CAPTCHA challenges
+ * @param {Page} page - Playwright page object
+ * @returns {Promise<boolean>} - True if handled successfully
+ */
+async function handleSliderPuzzle(page) {
+  try {
+    console.log('Checking for slider puzzle CAPTCHA...');
 
-<<<<<<< HEAD
+    // Check if we have a slider puzzle on the page
+    const hasSliderPuzzle = await page.locator('text=Slide right to complete the puzzle').isVisible()
+      .catch(() => false);
+    
+    if (!hasSliderPuzzle) {
+      return false;
+    }
+
+    console.log('Slider puzzle detected, attempting to solve...');
+
+    // Find the slider element
+    const sliderElement = await page.locator('button[class*="arrow"], button >> svg[class*="arrow"], button:has([class*="arrow"])').first();
+    
+    if (!await sliderElement.isVisible()) {
+      console.log('Could not find the slider element');
+      return false;
+    }
+
+    // Get slider position
+    const sliderBox = await sliderElement.boundingBox();
+    if (!sliderBox) {
+      console.log('Could not get slider element bounds');
+      return false;
+    }
+
+    // Calculate points for sliding
+    const startX = sliderBox.x + sliderBox.width / 2;
+    const startY = sliderBox.y + sliderBox.height / 2;
+    const endX = startX + 250; // Adjust to slide all the way
+    
+    // Execute the slide with human-like motion
+    await page.mouse.move(startX, startY, { steps: 5 });
+    await page.waitForTimeout(300 + Math.random() * 200);
+    await page.mouse.down();
+    await page.waitForTimeout(200 + Math.random() * 100);
+    
+    // Move in small steps with random delays to appear human-like
+    const steps = 10 + Math.floor(Math.random() * 5);
+    const distance = endX - startX;
+    
+    for (let i = 1; i <= steps; i++) {
+      const stepX = startX + (distance * i / steps);
+      // Add slight variation in Y to make movement more human
+      const stepY = startY + (Math.random() * 2 - 1);
+      await page.mouse.move(stepX, stepY, { steps: 3 });
+      await page.waitForTimeout(30 + Math.random() * 40);
+    }
+    
+    await page.waitForTimeout(200 + Math.random() * 100);
+    await page.mouse.up();
+    
+    // Wait for verification
+    await page.waitForTimeout(2000);
+    
+    // Check if verification was successful (puzzle no longer visible)
+    const stillHasPuzzle = await page.locator('text=Slide right to complete the puzzle').isVisible()
+      .catch(() => false);
+    
+    if (!stillHasPuzzle) {
+      console.log('Slider puzzle solved successfully!');
+      return true;
+    } else {
+      console.log('Slider puzzle still present, verification may have failed');
+      return false;
+    }
+  } catch (error) {
+    console.warn('Error handling slider puzzle:', error);
+    return false;
+  }
+}
+
+// Optimize random delays
+async function addRandomDelay() {
+    const delay = 500 + Math.random() * 1000; // Reduced from 1000-3000 to 500-1500
+    await new Promise(resolve => setTimeout(resolve, delay));
+}
+
 async function createBrowserSession(browser) {
-=======
-export async function createBrowserSession(browser) {
->>>>>>> 953b520103c0ce769549fadb643f13de60980ab7
     // Pick a random user agent from a list of real browser user agents
     const userAgents = [
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
@@ -1041,88 +1074,7 @@ export async function createBrowserSession(browser) {
     return context;
 }
 
-// Optimize random delays
-async function addRandomDelay() {
-    const delay = 500 + Math.random() * 1000; // Reduced from 1000-3000 to 500-1500
-    await new Promise(resolve => setTimeout(resolve, delay));
-}
-
-/**
- * Handles slider puzzle CAPTCHA challenges
- * @param {Page} page - Playwright page object
- * @returns {Promise<boolean>} - True if handled successfully
- */
-async function handleSliderPuzzle(page) {
-  try {
-    console.log('Checking for slider puzzle CAPTCHA...');
-
-    // Check if we have a slider puzzle on the page
-    const hasSliderPuzzle = await page.locator('text=Slide right to complete the puzzle').isVisible()
-      .catch(() => false);
-    
-    if (!hasSliderPuzzle) {
-      return false;
-    }
-
-    console.log('Slider puzzle detected, attempting to solve...');
-
-    // Find the slider element
-    const sliderElement = await page.locator('button[class*="arrow"], button >> svg[class*="arrow"], button:has([class*="arrow"])').first();
-    
-    if (!await sliderElement.isVisible()) {
-      console.log('Could not find the slider element');
-      return false;
-    }
-
-    // Get slider position
-    const sliderBox = await sliderElement.boundingBox();
-    if (!sliderBox) {
-      console.log('Could not get slider element bounds');
-      return false;
-    }
-
-    // Calculate points for sliding
-    const startX = sliderBox.x + sliderBox.width / 2;
-    const startY = sliderBox.y + sliderBox.height / 2;
-    const endX = startX + 250; // Adjust to slide all the way
-    
-    // Execute the slide with human-like motion
-    await page.mouse.move(startX, startY, { steps: 5 });
-    await page.waitForTimeout(300 + Math.random() * 200);
-    await page.mouse.down();
-    await page.waitForTimeout(200 + Math.random() * 100);
-    
-    // Move in small steps with random delays to appear human-like
-    const steps = 10 + Math.floor(Math.random() * 5);
-    const distance = endX - startX;
-    
-    for (let i = 1; i <= steps; i++) {
-      const stepX = startX + (distance * i / steps);
-      // Add slight variation in Y to make movement more human
-      const stepY = startY + (Math.random() * 2 - 1);
-      await page.mouse.move(stepX, stepY, { steps: 3 });
-      await page.waitForTimeout(30 + Math.random() * 40);
-    }
-    
-    await page.waitForTimeout(200 + Math.random() * 100);
-    await page.mouse.up();
-    
-    // Wait for verification
-    await page.waitForTimeout(2000);
-    
-    // Check if verification was successful (puzzle no longer visible)
-    const stillHasPuzzle = await page.locator('text=Slide right to complete the puzzle').isVisible()
-      .catch(() => false);
-    
-    if (!stillHasPuzzle) {
-      console.log('Slider puzzle solved successfully!');
-      return true;
-    } else {
-      console.log('Slider puzzle still present, verification may have failed');
-      return false;
-    }
-  } catch (error) {
-    console.warn('Error handling slider puzzle:', error);
-    return false;
-  }
-}
+// Export the module and its functions
+module.exports = initialBrowserSetup;
+module.exports.createBrowserSession = createBrowserSession;
+module.exports.handleSliderPuzzle = handleSliderPuzzle;

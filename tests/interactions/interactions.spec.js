@@ -5,7 +5,8 @@ import fs from 'fs';
 import { ActionHelper } from '../../utils/actionHelper.js';
 import dotenv from 'dotenv';
 import { retailerConfig } from '../../config/retailers.js';
-import initialBrowserSetup, { createBrowserSession } from '../../utils/initialBrowserSetup.js';
+const initialBrowserSetup = require('../../utils/initialBrowserSetup.js');
+const { createBrowserSession } = initialBrowserSetup;
 
 dotenv.config();
 const retailer = process.env.RETAILER || 'amazon';
@@ -68,16 +69,37 @@ const testCases = (() => {
     }
 })();
 
+// Initial navigation with better error handling and retry mechanism
+async function navigateWithRetry(page, url, maxRetries = 2) {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            await page.goto(url, {
+                waitUntil: 'domcontentloaded',
+                timeout: 60000
+            });
+            return;
+        } catch (err) {
+            console.warn(`Navigation attempt ${attempt} failed:`, err);
+            if (attempt === maxRetries) throw err;
+            await page.waitForTimeout(2000); // Wait before retry
+        }
+    }
+}
+
 test.describe(`${retailer.toUpperCase()} E2E Test Suite`, () => {
     test.setTimeout(300000);
     let warmContext;
 
     test.beforeAll(async ({ browser }, testInfo) => {
-        testInfo.annotations.push({ type: 'epic', description: 'E2E Tests' });
-        testInfo.annotations.push({ type: 'feature', description: retailer.toUpperCase() + ' E2E Tests' });
+        try {
+            testInfo.annotations.push({ type: 'epic', description: 'E2E Tests' });
+            testInfo.annotations.push({ type: 'feature', description: retailer.toUpperCase() + ' E2E Tests' });
 
-        // Pass the browser instance to createBrowserSession
-        warmContext = await createBrowserSession(browser);
+            warmContext = await createBrowserSession(browser);
+        } catch (error) {
+            console.error('Failed to create browser session:', error);
+            throw error;
+        }
     });
 
     test.afterAll(async () => {
@@ -94,30 +116,28 @@ test.describe(`${retailer.toUpperCase()} E2E Test Suite`, () => {
     });
 
     test.afterEach(async ({ page, context }, testInfo) => {
-        if (testInfo.status !== 'passed') {
-            try {
-                const screenshot = await page.screenshot();
-                await testInfo.attach(`${retailer}-error-state`, {
-                    body: screenshot,
-                    contentType: 'image/jpeg'
-                });
-            } catch (error) {
-                console.error('Failed to capture failure state:', error);
+        try {
+            if (testInfo.status !== 'passed') {
+                const screenshot = await captureScreenshot(page);
+                if (screenshot) {
+                    await testInfo.attach(`${retailer}-error-state`, {
+                        body: screenshot,
+                        contentType: 'image/jpeg'
+                    });
+                }
             }
+        } catch (error) {
+            console.error('Failed to capture failure state:', error);
+        } finally {
+            await initialBrowserSetup.cleanup(page, context).catch(err => 
+                console.error('Cleanup error:', err)
+            );
         }
-        await initialBrowserSetup.cleanup(page, context);
     });
 
     Object.entries(testCases).forEach(([testId, steps]) => {
         test(`${retailer.toUpperCase()} - ${testId}`, async ({ browser }, testInfo) => {
-            // Use the warm context or create a new one if needed
-            const context = warmContext || await createBrowserSession(browser);
-            const page = await context.newPage();
-            const actionHelper = new ActionHelper(page);
-
-            let currentPage = page;
-
-            // Track step statistics
+            // Remove the duplicate initialization and keep only one stepStats declaration
             const stepStats = {
                 totalSteps: steps.filter(step => step.Enabled?.toLowerCase() !== 'no').length,
                 executedSteps: 0,
@@ -126,6 +146,74 @@ test.describe(`${retailer.toUpperCase()} E2E Test Suite`, () => {
                 failedSteps: 0,
                 skippedSteps: 0
             };
+
+            // Modify executeStep to accept stepStats as a parameter
+            const executeStep = async (currentPage, step, actionHelper, test) => {
+                if (!currentPage || currentPage.isClosed()) {
+                    throw new Error('Invalid or closed page');
+                }
+
+                try {
+                    if (step.waitBefore) {
+                        await currentPage.waitForTimeout(parseInt(step.waitBefore));
+                    }
+
+                    switch (step.action.toLowerCase()) {
+                        case 'goto':
+                            stepStats.playwrightSteps++;
+                            await actionHelper.handleGoto(currentPage, step, test);
+                            if (initialBrowserSetup.handleAntibotChallenge) {
+                                await initialBrowserSetup.handleAntibotChallenge(currentPage);
+                            }
+                            break;
+                        case 'type':
+                            stepStats.playwrightSteps++;
+                            await actionHelper.handleInputData(currentPage, step, test);
+                            break;
+                        case 'click':
+                            stepStats.playwrightSteps++;
+                            await actionHelper.handleTextBasedClick(currentPage, step, test);
+                            break;
+                        case 'scroll':
+                            stepStats.playwrightSteps++;
+                            await actionHelper.handleScroll(currentPage, step, test);
+                            break;
+                        case 'waitfortext':
+                            stepStats.playwrightSteps++;
+                            await actionHelper.handleCheckVisible(currentPage, step, test);
+                            break;
+                        case 'assert':
+                            stepStats.playwrightSteps++;
+                            await actionHelper.handleAssert(currentPage, step, test);
+                            break;
+                        case 'cartassert':
+                            stepStats.playwrightSteps++;
+                            await actionHelper.handleCartAssert(currentPage, step, test);
+                            break;
+                        default:
+                            if (!step.action) {
+                                throw new Error('Missing action in step');
+                            }
+                            stepStats.aiSteps++;
+                            await actionHelper.handleAiCommand(currentPage, step, test);
+                            break;
+                    }
+
+                    if (step.waitAfter) {
+                        await currentPage.waitForTimeout(parseInt(step.waitAfter));
+                    }
+                } catch (error) {
+                    console.error(`Failed to execute step ${step.action}:`, error);
+                    throw error;
+                }
+            };
+
+            // Use the warm context or create a new one if needed
+            const context = warmContext || await createBrowserSession(browser);
+            const page = await context.newPage();
+            const actionHelper = new ActionHelper(page);
+
+            let currentPage = page;
 
             try {
                 // Handle new pages with error catching
@@ -141,18 +229,8 @@ test.describe(`${retailer.toUpperCase()} E2E Test Suite`, () => {
                     }
                 });
 
-                // Initial navigation with better error handling
-                await currentPage.goto(`https://www.${config.domain}`, {
-                    waitUntil: 'domcontentloaded',
-                    timeout: 60000
-                }).catch(async (err) => {
-                    console.warn('Initial navigation warning:', err);
-                    // Retry once on failure
-                    await currentPage.goto(`https://www.${config.domain}`, {
-                        waitUntil: 'domcontentloaded',
-                        timeout: 60000
-                    });
-                });
+                // Initial navigation with better error handling and retry mechanism
+                await navigateWithRetry(currentPage, `https://www.${config.domain}`);
 
                 // Check for antibot challenges ONLY after initial navigation
                 if (initialBrowserSetup.handleAntibotChallenge) {
@@ -172,68 +250,10 @@ test.describe(`${retailer.toUpperCase()} E2E Test Suite`, () => {
                                 throw new Error('Current page is closed');
                             }
 
-                            if (step.waitBefore) {
-                                await currentPage.waitForTimeout(parseInt(step.waitBefore))
-                                    .catch(() => { });
-                            }
-
-                            actionHelper.setPage(currentPage);
+                            await executeStep(currentPage, step, actionHelper, test);
 
                             // Increment executed steps count
                             stepStats.executedSteps++;
-
-                            // Execute action with error handling
-                            switch (step.action.toLowerCase()) {
-                                case 'goto':
-                                    await actionHelper.handleGoto(currentPage, step, test);
-                                    stepStats.playwrightSteps++;
-                                    // ALWAYS check for antibot after explicit navigation
-                                    if (initialBrowserSetup.handleAntibotChallenge) {
-                                        await initialBrowserSetup.handleAntibotChallenge(currentPage);
-                                    }
-                                    break;
-
-                                case 'type':
-                                    await actionHelper.handleInputData(currentPage, step, test);
-                                    stepStats.playwrightSteps++;
-                                    break;
-
-                                case 'click':
-                                    await actionHelper.handleTextBasedClick(currentPage, step, test);
-                                    stepStats.playwrightSteps++;
-                                    await currentPage.waitForLoadState('domcontentloaded').catch(() => { });
-                                    break;
-
-                                case 'scroll':
-                                    await actionHelper.handleScroll(currentPage, step, test);
-                                    stepStats.playwrightSteps++;
-                                    break;
-
-                                case 'waitfortext':
-                                    await actionHelper.handleCheckVisible(currentPage, step, test);
-                                    stepStats.playwrightSteps++;
-                                    break;
-
-                                case 'assert':
-                                    await actionHelper.handleAssert(currentPage, step, test);
-                                    stepStats.playwrightSteps++;
-                                    break;
-
-                                case 'cartassert':
-                                    await actionHelper.handleCartAssert(currentPage, step, test);
-                                    stepStats.playwrightSteps++;
-                                    break;
-
-                                default:
-                                    await actionHelper.handleAiCommand(currentPage, step, test);
-                                    stepStats.aiSteps++;
-                                    break;
-                            }
-
-                            if (step.waitAfter) {
-                                await currentPage.waitForTimeout(parseInt(step.waitAfter))
-                                    .catch(() => { });
-                            }
                         } catch (error) {
                             console.error(`Step execution error: ${error.message}`);
                             stepStats.failedSteps++;
