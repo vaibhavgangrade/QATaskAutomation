@@ -10,7 +10,7 @@ const retailerConfig = {
         jsfile: 'bluenile.js'
     },
     fakeretailer: {
-        domain: 'scrapingcourse.com',
+        domain: 'nectarsleep.com',
         excelFile: 'test.xlsx',
         jsfile: 'walmart.js'
     },

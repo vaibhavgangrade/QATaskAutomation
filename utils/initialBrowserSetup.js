@@ -1,5 +1,5 @@
-import dotenv from 'dotenv';
-import { retailerConfig } from '../config/retailers.js';
+const dotenv = require('dotenv');
+const { retailerConfig } = require('../config/retailers.js');
 dotenv.config();
 
 const retailer = process.env.RETAILER || 'amazon';
@@ -247,23 +247,17 @@ const initialBrowserSetup = {
 
     async handleSessionRecovery(context) {
         try {
-            // Remove proxy rotation code
-            // Only keep user agent and header rotation
-            await context.setExtraHTTPHeaders({
-                'User-Agent': getRandomUserAgent(),
-                'Accept-Language': ['en-US', 'en-GB', 'en-CA'][Math.floor(Math.random() * 3)],
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Connection': 'keep-alive',
-                'DNT': Math.random() > 0.5 ? '1' : '0'
-            });
-
-            // Clear storage and cookies
-            await context.clearCookies();
-            await context.clearPermissions();
+            // Session recovery functionality is disabled
+            // Code for proxy rotation and header customization has been removed
             
-            // Add random delay between 15-35 seconds
-            await new Promise(r => setTimeout(r, 15000 + Math.random() * 20000));
+            // Comment out storage clearing
+            // await context.clearCookies();
+            // await context.clearPermissions();
+            
+            // Comment out delay
+            // await new Promise(r => setTimeout(r, 15000 + Math.random() * 20000));
+            
+            console.log('Session recovery disabled');
         } catch (error) {
             console.warn('Session recovery attempt failed:', error);
         }
@@ -343,71 +337,37 @@ const initialBrowserSetup = {
         }
     },
 
-    async simulateHumanBehavior(page) {
+    async simulateAdvancedHumanBehavior(page) {
         try {
-            if (!page || page.isClosed()) return;
-
-            // 1. Minimal initial delay
-            await page.waitForTimeout(500);
-
-            // 2. Single smooth scroll if needed
+            // Randomize mouse movements
+            const viewportSize = page.viewportSize();
+            if (viewportSize) {
+                // Initial mouse movement to center
+                await page.mouse.move(
+                    viewportSize.width / 2,
+                    viewportSize.height / 2
+                );
+                
+                // Random movements
+                for (let i = 0; i < 3; i++) {
+                    const x = Math.floor(Math.random() * viewportSize.width);
+                    const y = Math.floor(Math.random() * viewportSize.height);
+                    await page.mouse.move(x, y, { steps: 5 });
+                    await page.waitForTimeout(Math.random() * 300 + 100);
+                }
+            }
+            
+            // Light scrolling
             await page.evaluate(() => {
-                return new Promise((resolve) => {
-                    // Only scroll if page is scrollable
-                    if (document.documentElement.scrollHeight > window.innerHeight) {
-                        const scrollAmount = Math.min(
-                            300,  // Maximum scroll
-                            (document.documentElement.scrollHeight - window.innerHeight) / 2
-                        );
-                        
-                        window.scrollBy({
-                            top: scrollAmount,
-                            behavior: 'smooth'
-                        });
-                    }
-                    setTimeout(resolve, 500);
+                window.scrollBy({
+                    top: 100 + Math.floor(Math.random() * 200),
+                    behavior: 'smooth'
                 });
             });
-
-            // Add natural cursor movement patterns
-            await page.evaluate(() => {
-                const createBezierCurve = (startX, startY, endX, endY) => {
-                    const controlPoint1X = startX + (Math.random() * 100);
-                    const controlPoint1Y = startY + (Math.random() * 100);
-                    const controlPoint2X = endX - (Math.random() * 100);
-                    const controlPoint2Y = endY - (Math.random() * 100);
-                    return { controlPoint1X, controlPoint1Y, controlPoint2X, controlPoint2Y };
-                };
-
-                // Simulate natural mouse movement
-                const moveMouseNaturally = async (startX, startY, endX, endY) => {
-                    const curve = createBezierCurve(startX, startY, endX, endY);
-                    const steps = 20 + Math.floor(Math.random() * 10);
-                    
-                    for (let i = 0; i <= steps; i++) {
-                        const t = i / steps;
-                        const x = Math.pow(1-t, 3) * startX + 
-                                3 * Math.pow(1-t, 2) * t * curve.controlPoint1X +
-                                3 * (1-t) * Math.pow(t, 2) * curve.controlPoint2X +
-                                Math.pow(t, 3) * endX;
-                        const y = Math.pow(1-t, 3) * startY +
-                                3 * Math.pow(1-t, 2) * t * curve.controlPoint1Y +
-                                3 * (1-t) * Math.pow(t, 2) * curve.controlPoint2Y +
-                                Math.pow(t, 3) * endY;
-                                
-                        const event = new MouseEvent('mousemove', {
-                            clientX: x,
-                            clientY: y,
-                            bubbles: true
-                        });
-                        document.dispatchEvent(event);
-                        await new Promise(r => setTimeout(r, 10 + Math.random() * 20));
-                    }
-                };
-            });
-
+            
+            await page.waitForTimeout(500);
         } catch (error) {
-            console.warn('Human behavior simulation warning:', error);
+            console.warn('Error in human behavior simulation:', error);
         }
     },
 
@@ -614,6 +574,18 @@ const initialBrowserSetup = {
                 return !await this.isChallengePage(page);
             }
             
+            // Check specifically for slider puzzle
+            const hasSliderPuzzle = await page.locator('text=Slide right to complete the puzzle').isVisible()
+              .catch(() => false);
+
+            if (hasSliderPuzzle) {
+                console.log('🧩 Slider puzzle detected!');
+                const puzzleSolved = await handleSliderPuzzle(page);
+                if (puzzleSolved) {
+                    return true;
+                }
+            }
+            
             return false;
         } catch (error) {
             console.warn('Error in antibot challenge handling:', error);
@@ -651,7 +623,7 @@ const initialBrowserSetup = {
     async applyAntibotEvasion(page) {
         try {
             // 1. Simulate human-like behavior
-            await this.simulateHumanBehavior(page);
+            await this.simulateAdvancedHumanBehavior(page);
             
             // 2. Inject antibot evasion scripts
             await page.evaluate(() => {
@@ -726,41 +698,6 @@ const initialBrowserSetup = {
             
         } catch (error) {
             console.warn('Error applying antibot evasion:', error);
-        }
-    },
-    
-    // Simulate human-like behavior to help bypass bot detection
-    async simulateHumanBehavior(page) {
-        try {
-            // Randomize mouse movements
-            const viewportSize = page.viewportSize();
-            if (viewportSize) {
-                // Initial mouse movement to center
-                await page.mouse.move(
-                    viewportSize.width / 2,
-                    viewportSize.height / 2
-                );
-                
-                // Random movements
-                for (let i = 0; i < 3; i++) {
-                    const x = Math.floor(Math.random() * viewportSize.width);
-                    const y = Math.floor(Math.random() * viewportSize.height);
-                    await page.mouse.move(x, y, { steps: 5 });
-                    await page.waitForTimeout(Math.random() * 300 + 100);
-                }
-            }
-            
-            // Light scrolling
-            await page.evaluate(() => {
-                window.scrollBy({
-                    top: 100 + Math.floor(Math.random() * 200),
-                    behavior: 'smooth'
-                });
-            });
-            
-            await page.waitForTimeout(500);
-        } catch (error) {
-            console.warn('Error in human behavior simulation:', error);
         }
     },
     
@@ -947,9 +884,11 @@ const initialBrowserSetup = {
     },
 };
 
-export default initialBrowserSetup;
+module.exports = initialBrowserSetup;
+module.exports.createBrowserSession = createBrowserSession;
+module.exports.handleSliderPuzzle = handleSliderPuzzle;
 
-export async function createBrowserSession(browser) {
+async function createBrowserSession(browser) {
     // Pick a random user agent from a list of real browser user agents
     const userAgents = [
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
@@ -1057,4 +996,84 @@ export async function createBrowserSession(browser) {
 async function addRandomDelay() {
     const delay = 500 + Math.random() * 1000; // Reduced from 1000-3000 to 500-1500
     await new Promise(resolve => setTimeout(resolve, delay));
+}
+
+/**
+ * Handles slider puzzle CAPTCHA challenges
+ * @param {Page} page - Playwright page object
+ * @returns {Promise<boolean>} - True if handled successfully
+ */
+async function handleSliderPuzzle(page) {
+  try {
+    console.log('Checking for slider puzzle CAPTCHA...');
+
+    // Check if we have a slider puzzle on the page
+    const hasSliderPuzzle = await page.locator('text=Slide right to complete the puzzle').isVisible()
+      .catch(() => false);
+    
+    if (!hasSliderPuzzle) {
+      return false;
+    }
+
+    console.log('Slider puzzle detected, attempting to solve...');
+
+    // Find the slider element
+    const sliderElement = await page.locator('button[class*="arrow"], button >> svg[class*="arrow"], button:has([class*="arrow"])').first();
+    
+    if (!await sliderElement.isVisible()) {
+      console.log('Could not find the slider element');
+      return false;
+    }
+
+    // Get slider position
+    const sliderBox = await sliderElement.boundingBox();
+    if (!sliderBox) {
+      console.log('Could not get slider element bounds');
+      return false;
+    }
+
+    // Calculate points for sliding
+    const startX = sliderBox.x + sliderBox.width / 2;
+    const startY = sliderBox.y + sliderBox.height / 2;
+    const endX = startX + 250; // Adjust to slide all the way
+    
+    // Execute the slide with human-like motion
+    await page.mouse.move(startX, startY, { steps: 5 });
+    await page.waitForTimeout(300 + Math.random() * 200);
+    await page.mouse.down();
+    await page.waitForTimeout(200 + Math.random() * 100);
+    
+    // Move in small steps with random delays to appear human-like
+    const steps = 10 + Math.floor(Math.random() * 5);
+    const distance = endX - startX;
+    
+    for (let i = 1; i <= steps; i++) {
+      const stepX = startX + (distance * i / steps);
+      // Add slight variation in Y to make movement more human
+      const stepY = startY + (Math.random() * 2 - 1);
+      await page.mouse.move(stepX, stepY, { steps: 3 });
+      await page.waitForTimeout(30 + Math.random() * 40);
+    }
+    
+    await page.waitForTimeout(200 + Math.random() * 100);
+    await page.mouse.up();
+    
+    // Wait for verification
+    await page.waitForTimeout(2000);
+    
+    // Check if verification was successful (puzzle no longer visible)
+    const stillHasPuzzle = await page.locator('text=Slide right to complete the puzzle').isVisible()
+      .catch(() => false);
+    
+    if (!stillHasPuzzle) {
+      console.log('Slider puzzle solved successfully!');
+      return true;
+    } else {
+      console.log('Slider puzzle still present, verification may have failed');
+      return false;
+    }
+  } catch (error) {
+    console.warn('Error handling slider puzzle:', error);
+    return false;
+  }
 }
