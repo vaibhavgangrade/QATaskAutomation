@@ -1,4 +1,4 @@
-export const retailerConfig = {
+const retailerConfig = {
     amazon: {
         domain: 'amazon.com',
         excelFile: 'amazonSteps.xlsx',
@@ -10,7 +10,7 @@ export const retailerConfig = {
         jsfile: 'bluenile.js'
     },
     fakeretailer: {
-        domain: 'selectorshub.com',
+        domain: 'scrapingcourse.com',
         excelFile: 'test.xlsx',
         jsfile: 'walmart.js'
     },
@@ -21,3 +21,5 @@ export const retailerConfig = {
     }
     
 };
+
+module.exports = { retailerConfig };

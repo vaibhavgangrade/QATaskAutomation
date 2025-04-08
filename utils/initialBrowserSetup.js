@@ -166,6 +166,63 @@ const initialBrowserSetup = {
                             window.PasswordCredential = undefined;
                         }
                     });
+
+                    // TLS and HTTP/2 fingerprint randomization
+                    // This simulates various browser TLS behaviors
+                    (() => {
+                        // Override navigator.connection to randomize network information
+                        const connectionTypes = ['wifi', 'cellular', 'ethernet', '4g', '3g'];
+                        Object.defineProperty(navigator, 'connection', {
+                            get: () => ({
+                                effectiveType: connectionTypes[Math.floor(Math.random() * connectionTypes.length)],
+                                rtt: Math.floor(Math.random() * 100) + 50,
+                                downlink: Math.random() * 10 + 1,
+                                saveData: Math.random() > 0.8
+                            })
+                        });
+                        
+                        // Override font fingerprinting
+                        const originalQuerySelector = document.querySelector;
+                        document.querySelector = function(...args) {
+                            // Randomize font metrics slightly
+                            if (args[0] && args[0].includes('font') || args[0].includes('text')) {
+                                const elem = originalQuerySelector.apply(this, args);
+                                if (elem) {
+                                    const originalGetClientRects = elem.getClientRects;
+                                    elem.getClientRects = function() {
+                                        const rects = originalGetClientRects.apply(this);
+                                        // Add subtle variations to font measurements
+                                        Array.from(rects).forEach(rect => {
+                                            rect.width += (Math.random() * 0.2) - 0.1;
+                                            rect.height += (Math.random() * 0.2) - 0.1;
+                                        });
+                                        return rects;
+                                    };
+                                }
+                                return elem;
+                            }
+                            return originalQuerySelector.apply(this, args);
+                        };
+                        
+                        // Override audio fingerprinting
+                        const AudioContext = window.AudioContext || window.webkitAudioContext;
+                        if (AudioContext) {
+                            const originalGetChannelData = AudioContext.prototype.createAnalyser;
+                            AudioContext.prototype.createAnalyser = function() {
+                                const analyser = originalGetChannelData.apply(this, arguments);
+                                const originalGetFloatFrequencyData = analyser.getFloatFrequencyData;
+                                analyser.getFloatFrequencyData = function(array) {
+                                    originalGetFloatFrequencyData.apply(this, arguments);
+                                    // Add slight noise to audio data
+                                    for (let i = 0; i < array.length; i++) {
+                                        array[i] += (Math.random() * 0.1) - 0.05;
+                                    }
+                                    return array;
+                                };
+                                return analyser;
+                            };
+                        }
+                    })();
                 })();
             });
 
@@ -418,6 +475,17 @@ const initialBrowserSetup = {
                 }
             });
 
+            // Setup antibot detection and handling events
+            page.on('load', async () => {
+                await this.handleAntibotChallenge(page);
+            });
+            
+            page.on('framenavigated', async (frame) => {
+                if (frame === page.mainFrame()) {
+                    await this.handleAntibotChallenge(page);
+                }
+            });
+
         } catch (error) {
             console.warn('Page setup warning:', error);
         }
@@ -451,12 +519,455 @@ const initialBrowserSetup = {
         } catch (error) {
             console.error('Cleanup failed:', error);
         }
-    }
+    },
+
+    // Add new antibot detection and handling method
+    async handleAntibotChallenge(page) {
+        try {
+            console.log('Checking for antibot challenges...');
+            
+            // Check for common challenge indicators
+            const challengeSelectors = [
+                'iframe[title*="challenge"]',
+                'iframe[src*="captcha"]',
+                'iframe[src*="cloudflare"]',
+                'iframe[src*="distil"]',
+                'iframe[src*="imperva"]',
+                'iframe[src*="akamai"]',
+                'iframe[src*="datadome"]',
+                'text=Verify you are human',
+                'text=Just a moment...',
+                'text=Please wait while we verify',
+                'text=Security Challenge',
+                'text=Confirm you are not a robot',
+                '#challenge-running',
+                '#js_info',
+                '.antibot-challenge',
+                'form[action*="captcha"]'
+            ];
+
+            let challengeDetected = false;
+            
+            // Check each selector
+            for (const selector of challengeSelectors) {
+                try {
+                    const isVisible = await page.locator(selector).isVisible({ timeout: 1000 });
+                    if (isVisible) {
+                        console.log(`🤖 Bot challenge detected: ${selector}`);
+                        challengeDetected = true;
+                        break;
+                    }
+                } catch (e) {
+                    // Ignore errors when checking selectors
+                }
+            }
+
+            if (!challengeDetected) {
+                // Also check for text content patterns
+                const pageContent = await page.content();
+                const challengePatterns = [
+                    /security check/i,
+                    /automated access/i,
+                    /bot detection/i,
+                    /captcha/i,
+                    /human verification/i,
+                    /ddos protection/i,
+                    /just a moment/i,
+                    /checking your browser/i
+                ];
+                
+                for (const pattern of challengePatterns) {
+                    if (pattern.test(pageContent)) {
+                        console.log(`🤖 Bot challenge detected via text pattern: ${pattern}`);
+                        challengeDetected = true;
+                        break;
+                    }
+                }
+            }
+
+            if (challengeDetected) {
+                console.log('🛡️ Antibot challenge detected, attempting to bypass...');
+                
+                // Apply bypass techniques
+                await this.applyAntibotEvasion(page);
+                
+                // Handle specific challenge types
+                await this.handleSpecificChallenges(page);
+                
+                // Wait for challenge to potentially resolve
+                console.log('⏱️ Waiting for challenge to resolve...');
+                await page.waitForTimeout(5000);
+                
+                // Check if we're still on a challenge page
+                const stillHasChallenge = await this.isChallengePage(page);
+                if (!stillHasChallenge) {
+                    console.log('✅ Challenge appears to be bypassed!');
+                    return true;
+                }
+                
+                // More extensive handling if challenge persists
+                console.log('⏱️ Challenge still active, applying additional techniques...');
+                await this.applyExtendedEvasionTechniques(page);
+                
+                // Final check
+                await page.waitForTimeout(10000);
+                return !await this.isChallengePage(page);
+            }
+            
+            return false;
+        } catch (error) {
+            console.warn('Error in antibot challenge handling:', error);
+            return false;
+        }
+    },
+    
+    // Check if page still has challenge elements
+    async isChallengePage(page) {
+        try {
+            const challengeSelectors = [
+                'iframe[title*="challenge"]',
+                'iframe[src*="captcha"]',
+                'text=Verify you are human',
+                'text=Just a moment...',
+                '#challenge-running'
+            ];
+            
+            for (const selector of challengeSelectors) {
+                try {
+                    const isVisible = await page.locator(selector).isVisible({ timeout: 1000 });
+                    if (isVisible) return true;
+                } catch (e) {
+                    // Ignore errors
+                }
+            }
+            
+            return false;
+        } catch (error) {
+            return false;
+        }
+    },
+    
+    // Apply initial antibot evasion techniques
+    async applyAntibotEvasion(page) {
+        try {
+            // 1. Simulate human-like behavior
+            await this.simulateHumanBehavior(page);
+            
+            // 2. Inject antibot evasion scripts
+            await page.evaluate(() => {
+                // Override automation detection
+                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                
+                // Override screen properties with subtle randomization
+                if (window.screen) {
+                    const getRandomInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+                    
+                    // Add random variations to screen properties
+                    const originalWidth = window.screen.width;
+                    const originalHeight = window.screen.height;
+                    const originalColorDepth = window.screen.colorDepth;
+                    
+                    Object.defineProperty(window.screen, 'width', { 
+                        get: () => originalWidth + getRandomInt(-3, 3)
+                    });
+                    Object.defineProperty(window.screen, 'height', { 
+                        get: () => originalHeight + getRandomInt(-3, 3)
+                    });
+                    Object.defineProperty(window.screen, 'colorDepth', { 
+                        get: () => originalColorDepth 
+                    });
+                }
+                
+                // Override Chrome properties if needed
+                if (!window.chrome) {
+                    window.chrome = {
+                        runtime: {},
+                        loadTimes: function() {},
+                        csi: function() {},
+                        app: {}
+                    };
+                }
+                
+                // Override Canvas fingerprinting
+                const originalGetContext = HTMLCanvasElement.prototype.getContext;
+                HTMLCanvasElement.prototype.getContext = function() {
+                    const context = originalGetContext.apply(this, arguments);
+                    if (context && arguments[0] === '2d') {
+                        const originalGetImageData = context.getImageData;
+                        context.getImageData = function() {
+                            const imageData = originalGetImageData.apply(this, arguments);
+                            // Subtly modify the image data
+                            for (let i = 0; i < imageData.data.length; i += 50) {
+                                imageData.data[i] = (imageData.data[i] + 1) % 256;
+                            }
+                            return imageData;
+                        };
+                    }
+                    return context;
+                };
+                
+                // Setup human-like random interactions to maintain "liveness"
+                const simulateRandomActivity = () => {
+                    if (Math.random() > 0.7) {
+                        const x = Math.floor(Math.random() * window.innerWidth);
+                        const y = Math.floor(Math.random() * window.innerHeight);
+                        const event = new MouseEvent('mousemove', {
+                            clientX: x,
+                            clientY: y,
+                            bubbles: true
+                        });
+                        document.dispatchEvent(event);
+                    }
+                };
+                
+                // Set up interval for random activity
+                setInterval(simulateRandomActivity, 2000 + Math.floor(Math.random() * 3000));
+            });
+            
+        } catch (error) {
+            console.warn('Error applying antibot evasion:', error);
+        }
+    },
+    
+    // Simulate human-like behavior to help bypass bot detection
+    async simulateHumanBehavior(page) {
+        try {
+            // Randomize mouse movements
+            const viewportSize = page.viewportSize();
+            if (viewportSize) {
+                // Initial mouse movement to center
+                await page.mouse.move(
+                    viewportSize.width / 2,
+                    viewportSize.height / 2
+                );
+                
+                // Random movements
+                for (let i = 0; i < 3; i++) {
+                    const x = Math.floor(Math.random() * viewportSize.width);
+                    const y = Math.floor(Math.random() * viewportSize.height);
+                    await page.mouse.move(x, y, { steps: 5 });
+                    await page.waitForTimeout(Math.random() * 300 + 100);
+                }
+            }
+            
+            // Light scrolling
+            await page.evaluate(() => {
+                window.scrollBy({
+                    top: 100 + Math.floor(Math.random() * 200),
+                    behavior: 'smooth'
+                });
+            });
+            
+            await page.waitForTimeout(500);
+        } catch (error) {
+            console.warn('Error in human behavior simulation:', error);
+        }
+    },
+    
+    // Apply more extensive evasion techniques for persistent challenges
+    async applyExtendedEvasionTechniques(page) {
+        try {
+            // More complex mouse movements
+            const viewportSize = page.viewportSize();
+            if (viewportSize) {
+                for (let i = 0; i < 5; i++) {
+                    // Random points within viewport
+                    const x1 = Math.floor(Math.random() * viewportSize.width);
+                    const y1 = Math.floor(Math.random() * viewportSize.height);
+                    const x2 = Math.floor(Math.random() * viewportSize.width);
+                    const y2 = Math.floor(Math.random() * viewportSize.height);
+                    
+                    // Move to first point
+                    await page.mouse.move(x1, y1, { steps: 10 });
+                    await page.waitForTimeout(100 + Math.random() * 200);
+                    
+                    // Move to second point
+                    await page.mouse.move(x2, y2, { steps: 10 });
+                    await page.waitForTimeout(100 + Math.random() * 200);
+                }
+            }
+            
+            // Try to find and click a challenge button if present
+            const verifyButtons = [
+                'button:has-text("Verify")',
+                'button:has-text("Continue")',
+                'button:has-text("I am human")',
+                'input[type="submit"]',
+                'button[type="submit"]'
+            ];
+            
+            for (const selector of verifyButtons) {
+                try {
+                    const isVisible = await page.locator(selector).isVisible({ timeout: 1000 });
+                    if (isVisible) {
+                        await page.locator(selector).click();
+                        console.log(`Clicked verification button: ${selector}`);
+                        await page.waitForTimeout(2000);
+                        break;
+                    }
+                } catch (e) {
+                    // Continue to next selector
+                }
+            }
+            
+            // More natural scrolling
+            await page.evaluate(() => {
+                return new Promise(resolve => {
+                    // More natural scrolling patterns
+                    const totalScrollSteps = 3 + Math.floor(Math.random() * 3);
+                    let currentStep = 0;
+                    
+                    const scrollStep = () => {
+                        if (currentStep >= totalScrollSteps) {
+                            resolve();
+                            return;
+                        }
+                        
+                        const scrollAmount = 100 + Math.floor(Math.random() * 200);
+                        window.scrollBy({
+                            top: scrollAmount,
+                            behavior: 'smooth'
+                        });
+                        
+                        currentStep++;
+                        setTimeout(scrollStep, 500 + Math.random() * 1000);
+                    };
+                    
+                    scrollStep();
+                });
+            });
+            
+            // Inject more advanced anti-fingerprinting techniques
+            await page.evaluate(() => {
+                // Override WebRTC to prevent IP leaks
+                if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+                    const originalEnumerateDevices = navigator.mediaDevices.enumerateDevices;
+                    navigator.mediaDevices.enumerateDevices = function() {
+                        return originalEnumerateDevices.apply(this, arguments)
+                            .then(devices => {
+                                return devices.filter(device => device.kind !== 'videoinput');
+                            });
+                    };
+                }
+                
+                // Override AudioContext fingerprinting
+                if (window.AudioContext) {
+                    const OriginalAudioContext = window.AudioContext;
+                    window.AudioContext = function() {
+                        const context = new OriginalAudioContext();
+                        const originalCreateOscillator = context.createOscillator;
+                        context.createOscillator = function() {
+                            const oscillator = originalCreateOscillator.apply(this, arguments);
+                            const originalGetFrequency = oscillator.frequency.value;
+                            Object.defineProperty(oscillator.frequency, 'value', {
+                                get: function() {
+                                    return originalGetFrequency + (Math.random() * 0.01 - 0.005);
+                                }
+                            });
+                            return oscillator;
+                        };
+                        return context;
+                    };
+                }
+                
+                // Add more browser-like behaviors
+                document.hasFocus = function() { return true; };
+                window.devicePixelRatio = Math.floor(window.devicePixelRatio * 100) / 100;
+            });
+        } catch (error) {
+            console.warn('Error applying extended evasion techniques:', error);
+        }
+    },
+    
+    // Handle specific types of challenges (like CloudFlare, etc.)
+    async handleSpecificChallenges(page) {
+        try {
+            // Check for CloudFlare challenge
+            const isCloudflare = await page.locator('iframe[src*="cloudflare"]').isVisible().catch(() => false);
+            if (isCloudflare) {
+                console.log('Detected CloudFlare challenge');
+                
+                // Try to find and switch to the challenge iframe
+                const iframes = await page.locator('iframe[src*="cloudflare"]').all();
+                if (iframes.length > 0) {
+                    const challengeFrame = await iframes[0].contentFrame();
+                    if (challengeFrame) {
+                        // Try to find and click the checkbox
+                        const checkbox = await challengeFrame.locator('.rc-anchor-checkbox').isVisible().catch(() => false);
+                        if (checkbox) {
+                            await challengeFrame.locator('.rc-anchor-checkbox').click().catch(() => {});
+                        }
+                    }
+                }
+                
+                // Wait for challenge processing
+                await page.waitForTimeout(5000);
+                return true;
+            }
+            
+            // Check for "I am human" button
+            const humanButton = await page.locator('button:has-text("I am human")').isVisible().catch(() => false);
+            if (humanButton) {
+                await page.locator('button:has-text("I am human")').click();
+                await page.waitForTimeout(3000);
+                return true;
+            }
+            
+            // Check for "Please verify you are human" text
+            const verifyHumanText = await page.locator('text=Please verify you are human').isVisible().catch(() => false);
+            if (verifyHumanText) {
+                // Look for any nearby buttons or checkboxes
+                const buttons = [
+                    'button:near(:text("Please verify you are human"))',
+                    'input[type="checkbox"]:near(:text("Please verify you are human"))',
+                    'input[type="submit"]:near(:text("Please verify you are human"))'
+                ];
+                
+                for (const buttonSelector of buttons) {
+                    try {
+                        const buttonVisible = await page.locator(buttonSelector).isVisible({ timeout: 1000 });
+                        if (buttonVisible) {
+                            await page.locator(buttonSelector).click();
+                            await page.waitForTimeout(3000);
+                            break;
+                        }
+                    } catch (e) {
+                        // Continue to next button
+                    }
+                }
+                
+                return true;
+            }
+            
+            return false;
+        } catch (error) {
+            console.warn('Error handling specific challenges:', error);
+            return false;
+        }
+    },
 };
 
 export default initialBrowserSetup;
 
 export async function createBrowserSession(browser) {
+    // Pick a random user agent from a list of real browser user agents
+    const userAgents = [
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Edg/122.0.2365.92',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+    ];
+    const randomUserAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
+
+    // Safely extract Chrome version or use a default
+    const getChromeVersion = (ua) => {
+        const match = ua.match(/Chrome\/(\d+)/);
+        return match ? match[1] : '122'; // Default to 122 if not found
+    };
+    const chromeVersion = getChromeVersion(randomUserAgent);
+
+    // Random viewport sizes that resemble real devices
     const viewportSizes = [
         { width: 1366, height: 768 },
         { width: 1440, height: 900 },
@@ -464,14 +975,23 @@ export async function createBrowserSession(browser) {
         { width: 1920, height: 1080 }
     ];
     const randomViewport = viewportSizes[Math.floor(Math.random() * viewportSizes.length)];
+    
+    // Random US timezones
+    const timezones = [
+        'America/New_York',
+        'America/Los_Angeles',
+        'America/Chicago',
+        'America/Denver'
+    ];
+    const randomTimezone = timezones[Math.floor(Math.random() * timezones.length)];
 
     const context = await browser.newContext({
         viewport: randomViewport,
-        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        userAgent: randomUserAgent,
         deviceScaleFactor: 1,
         hasTouch: false,
         locale: 'en-US',
-        timezoneId: 'America/New_York',
+        timezoneId: randomTimezone,
         permissions: ['geolocation'],
         // Security and performance options
         ignoreHTTPSErrors: true,
@@ -489,9 +1009,14 @@ export async function createBrowserSession(browser) {
             'Accept-Encoding': 'gzip, deflate, br',
             'Cache-Control': 'no-cache',
             'Pragma': 'no-cache',
-            'Sec-Ch-Ua': '"Chromium";v="122", "Google Chrome";v="122"',
+            'Sec-Ch-Ua': `"Chromium";v="${chromeVersion}", "Google Chrome";v="${chromeVersion}"`,
             'Sec-Ch-Ua-Mobile': '?0',
             'Sec-Ch-Ua-Platform': '"Windows"',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1',
+            'Upgrade-Insecure-Requests': '1',
             'Authorization': '',  // Empty authorization to prevent auth prompts
             'WWW-Authenticate': 'None'  // Prevent auth challenges
         }
@@ -503,6 +1028,11 @@ export async function createBrowserSession(browser) {
         page.on('dialog', async (dialog) => {
             await dialog.dismiss().catch(() => {});
         });
+        
+        // Setup the page with antibot evasion
+        await initialBrowserSetup.setupPage(page).catch(err => 
+            console.warn('New page setup warning:', err)
+        );
     });
 
     await initialBrowserSetup.setupBrowser(context);
