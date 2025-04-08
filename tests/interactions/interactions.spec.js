@@ -5,9 +5,7 @@ import fs from 'fs';
 import { ActionHelper } from '../../utils/actionHelper.js';
 import dotenv from 'dotenv';
 import { retailerConfig } from '../../config/retailers.js';
-import initialBrowserSetup from '../../utils/initialBrowserSetup.js';
-import { createBrowserSession } from '../../utils/initialBrowserSetup.js';
-
+import initialBrowserSetup, { createBrowserSession } from '../../utils/initialBrowserSetup.js';
 
 dotenv.config();
 const retailer = process.env.RETAILER || 'amazon';
@@ -26,12 +24,12 @@ async function captureScreenshot(page, timeout = 30000) {
         // Attempt screenshot with optimized options
         return await page.screenshot(
             {
-            timeout: timeout,
-            type: 'jpeg',
-            quality: 80,
-            scale: 'css',
-            animations: 'disabled'
-        });
+                timeout: timeout,
+                type: 'jpeg',
+                quality: 80,
+                scale: 'css',
+                animations: 'disabled'
+            });
     } catch (error) {
         console.warn(`Primary screenshot capture failed: ${error.message}`);
         // Fallback attempt with minimal options
@@ -77,7 +75,7 @@ test.describe(`${retailer.toUpperCase()} E2E Test Suite`, () => {
     test.beforeAll(async ({ browser }, testInfo) => {
         testInfo.annotations.push({ type: 'epic', description: 'E2E Tests' });
         testInfo.annotations.push({ type: 'feature', description: retailer.toUpperCase() + ' E2E Tests' });
-        
+
         // Pass the browser instance to createBrowserSession
         warmContext = await createBrowserSession(browser);
     });
@@ -116,14 +114,24 @@ test.describe(`${retailer.toUpperCase()} E2E Test Suite`, () => {
             const context = warmContext || await createBrowserSession(browser);
             const page = await context.newPage();
             const actionHelper = new ActionHelper(page);
-            
+
             let currentPage = page;
-            
+
+            // Track step statistics
+            const stepStats = {
+                totalSteps: steps.filter(step => step.Enabled?.toLowerCase() !== 'no').length,
+                executedSteps: 0,
+                playwrightSteps: 0,
+                aiSteps: 0,
+                failedSteps: 0,
+                skippedSteps: 0
+            };
+
             try {
                 // Handle new pages with error catching
                 context.on('page', async (newPage) => {
                     try {
-                        await initialBrowserSetup.setupPage(newPage).catch(err => 
+                        await initialBrowserSetup.setupPage(newPage).catch(err =>
                             console.warn('New page setup warning:', err)
                         );
                         currentPage = newPage;
@@ -146,9 +154,17 @@ test.describe(`${retailer.toUpperCase()} E2E Test Suite`, () => {
                     });
                 });
 
+                // Check for antibot challenges ONLY after initial navigation
+                if (initialBrowserSetup.handleAntibotChallenge) {
+                    await initialBrowserSetup.handleAntibotChallenge(currentPage);
+                }
+
                 // Execute test steps with better error handling
                 for (const step of steps) {
-                    if (step.Enabled?.toLowerCase() === 'no') continue;
+                    if (step.Enabled?.toLowerCase() === 'no') {
+                        stepStats.skippedSteps++;
+                        continue;
+                    }
 
                     await test.step(`${step.action}: ${step.locator || ''}`, async () => {
                         try {
@@ -158,57 +174,168 @@ test.describe(`${retailer.toUpperCase()} E2E Test Suite`, () => {
 
                             if (step.waitBefore) {
                                 await currentPage.waitForTimeout(parseInt(step.waitBefore))
-                                    .catch(() => {});
+                                    .catch(() => { });
                             }
 
                             actionHelper.setPage(currentPage);
+
+                            // Increment executed steps count
+                            stepStats.executedSteps++;
 
                             // Execute action with error handling
                             switch (step.action.toLowerCase()) {
                                 case 'goto':
                                     await actionHelper.handleGoto(currentPage, step, test);
+                                    stepStats.playwrightSteps++;
+                                    // ALWAYS check for antibot after explicit navigation
+                                    if (initialBrowserSetup.handleAntibotChallenge) {
+                                        await initialBrowserSetup.handleAntibotChallenge(currentPage);
+                                    }
                                     break;
+
                                 case 'type':
                                     await actionHelper.handleInputData(currentPage, step, test);
+                                    stepStats.playwrightSteps++;
                                     break;
+
                                 case 'click':
                                     await actionHelper.handleTextBasedClick(currentPage, step, test);
-                                    await currentPage.waitForLoadState('domcontentloaded').catch(() => {});
+                                    stepStats.playwrightSteps++;
+                                    await currentPage.waitForLoadState('domcontentloaded').catch(() => { });
                                     break;
+
                                 case 'scroll':
                                     await actionHelper.handleScroll(currentPage, step, test);
+                                    stepStats.playwrightSteps++;
                                     break;
+
                                 case 'waitfortext':
                                     await actionHelper.handleCheckVisible(currentPage, step, test);
+                                    stepStats.playwrightSteps++;
                                     break;
+
                                 case 'assert':
                                     await actionHelper.handleAssert(currentPage, step, test);
+                                    stepStats.playwrightSteps++;
                                     break;
+
                                 case 'cartassert':
                                     await actionHelper.handleCartAssert(currentPage, step, test);
+                                    stepStats.playwrightSteps++;
                                     break;
+
                                 default:
                                     await actionHelper.handleAiCommand(currentPage, step, test);
+                                    stepStats.aiSteps++;
                                     break;
                             }
 
                             if (step.waitAfter) {
                                 await currentPage.waitForTimeout(parseInt(step.waitAfter))
-                                    .catch(() => {});
+                                    .catch(() => { });
                             }
                         } catch (error) {
                             console.error(`Step execution error: ${error.message}`);
+                            stepStats.failedSteps++;
                             throw error;
                         }
                     });
                 }
+
+                // Calculate success rate and completion percentage
+                const successRate = Math.round(((stepStats.executedSteps - stepStats.failedSteps) / stepStats.executedSteps) * 100);
+                const completionRate = Math.round((stepStats.executedSteps / stepStats.totalSteps) * 100);
+
+                // Create a more visually prominent HTML summary
+                const htmlSummary = `
+<div class="step-stats-container" style="margin: 20px 0; padding: 15px; border-radius: 8px; background-color: #f5f7fa; border: 1px solid #d0d7de; max-width: 800px; font-family: system-ui, sans-serif;">
+    <h2 style="color: #24292f; margin-top: 0; border-bottom: 1px solid #d0d7de; padding-bottom: 10px; font-size: 18px;">Test Execution Report: ${retailer.toUpperCase()} - ${testId}</h2>
+    <div style="display: flex; margin-bottom: 15px;">
+        <div style="flex: 1; text-align: center; padding: 10px; background-color: ${successRate >= 90 ? '#dafbe1' : successRate >= 70 ? '#fff8c5' : '#ffebe9'}; border-radius: 6px; margin-right: 10px;">
+            <div style="font-size: 22px; font-weight: bold; color: ${successRate >= 90 ? '#1a7f37' : successRate >= 70 ? '#9a6700' : '#cf222e'};">${successRate}%</div>
+            <div style="font-size: 14px; color: #57606a;">Success Rate</div>
+        </div>
+        <div style="flex: 1; text-align: center; padding: 10px; background-color: #f6f8fa; border-radius: 6px;">
+            <div style="font-size: 22px; font-weight: bold; color: #24292f;">${completionRate}%</div>
+            <div style="font-size: 14px; color: #57606a;">Completion Rate</div>
+        </div>
+    </div>
+    <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+        <tr style="background-color: #f6f8fa;">
+            <th style="text-align: left; padding: 8px 12px; border: 1px solid #d0d7de;">Metric</th>
+            <th style="text-align: center; padding: 8px 12px; border: 1px solid #d0d7de;">Count</th>
+            <th style="text-align: center; padding: 8px 12px; border: 1px solid #d0d7de;">Percentage</th>
+        </tr>
+        <tr>
+            <td style="padding: 8px 12px; border: 1px solid #d0d7de;">Total Available Steps</td>
+            <td style="text-align: center; padding: 8px 12px; border: 1px solid #d0d7de;">${stepStats.totalSteps}</td>
+            <td style="text-align: center; padding: 8px 12px; border: 1px solid #d0d7de;">100%</td>
+        </tr>
+        <tr style="background-color: #f6f8fa;">
+            <td style="padding: 8px 12px; border: 1px solid #d0d7de;">Executed Steps Count</td>
+            <td style="text-align: center; padding: 8px 12px; border: 1px solid #d0d7de;">${stepStats.executedSteps}</td>
+            <td style="text-align: center; padding: 8px 12px; border: 1px solid #d0d7de;">${completionRate}%</td>
+        </tr>
+        <tr>
+            <td style="padding: 8px 12px; border: 1px solid #d0d7de;">Step Executed by Playwright</td>
+            <td style="text-align: center; padding: 8px 12px; border: 1px solid #d0d7de;">${stepStats.playwrightSteps}</td>
+            <td style="text-align: center; padding: 8px 12px; border: 1px solid #d0d7de;">${Math.round((stepStats.playwrightSteps / stepStats.executedSteps) * 100)}%</td>
+        </tr>
+        <tr style="background-color: #f6f8fa;">
+            <td style="padding: 8px 12px; border: 1px solid #d0d7de;">Steps Executed by AI</td>
+            <td style="text-align: center; padding: 8px 12px; border: 1px solid #d0d7de;">${stepStats.aiSteps}</td>
+            <td style="text-align: center; padding: 8px 12px; border: 1px solid #d0d7de;">${Math.round((stepStats.aiSteps / stepStats.executedSteps) * 100)}%</td>
+        </tr>
+        <tr>
+            <td style="padding: 8px 12px; border: 1px solid #d0d7de;">Failed Steps Count</td>
+            <td style="text-align: center; padding: 8px 12px; border: 1px solid #d0d7de;">${stepStats.failedSteps}</td>
+            <td style="text-align: center; padding: 8px 12px; border: 1px solid #d0d7de;">${Math.round((stepStats.failedSteps / stepStats.executedSteps) * 100)}%</td>
+        </tr>
+        <tr style="background-color: #f6f8fa;">
+            <td style="padding: 8px 12px; border: 1px solid #d0d7de;">Skipped Steps Count</td>
+            <td style="text-align: center; padding: 8px 12px; border: 1px solid #d0d7de;">${stepStats.skippedSteps}</td>
+            <td style="text-align: center; padding: 8px 12px; border: 1px solid #d0d7de;">${Math.round((stepStats.skippedSteps / stepStats.totalSteps) * 100)}%</td>
+        </tr>
+    </table>
+</div>`;
+
+                // Attach the HTML report with a more distinct name
+                await testInfo.attach('📊 Test Execution Summary', {
+                    body: htmlSummary,
+                    contentType: 'text/html'
+                });
+
+                // Add step statistics as annotations for the report
+                testInfo.annotations.push(
+                    { type: 'Step Statistics', description: 'Summary of test step execution' },
+                    { type: 'Total Steps', description: `${stepStats.totalSteps}` },
+                    { type: 'Executed Steps', description: `${stepStats.executedSteps}` },
+                    { type: 'Playwright Steps', description: `${stepStats.playwrightSteps}` },
+                    { type: 'AI Steps', description: `${stepStats.aiSteps}` },
+                    { type: 'Failed Steps', description: `${stepStats.failedSteps}` },
+                    { type: 'Skipped Steps', description: `${stepStats.skippedSteps}` },
+                    { type: 'Success Rate', description: `${successRate}%` },
+                    { type: 'Completion Rate', description: `${completionRate}%` }
+                );
+
+                // Log statistics to console
+                console.log('\n----- Test Step Execution Statistics -----');
+                console.log(`Total Steps: ${stepStats.totalSteps}`);
+                console.log(`Executed Steps: ${stepStats.executedSteps} (${completionRate}%)`);
+                console.log(`Playwright Steps: ${stepStats.playwrightSteps}`);
+                console.log(`AI Steps: ${stepStats.aiSteps}`);
+                console.log(`Failed Steps: ${stepStats.failedSteps}`);
+                console.log(`Skipped Steps: ${stepStats.skippedSteps}`);
+                console.log(`Success Rate: ${successRate}%`);
+                console.log('-----------------------------------------\n');
+
             } catch (error) {
                 console.error(`${retailer.toUpperCase()} Test Case ${testId} failed:`, error);
                 throw error;
             } finally {
                 // Cleanup only the page, not the context
                 if (currentPage && !currentPage.isClosed()) {
-                    await currentPage.close().catch(() => {});
+                    await currentPage.close().catch(() => { });
                 }
             }
         });
