@@ -58,7 +58,7 @@ const initialBrowserSetup = {
                     // Override properties with proxy getters
                     const overrideProperty = (obj, prop, value) => {
                         Object.defineProperty(obj, prop, {
-                            get: () => value,
+                            get: () => value + Math.random() * 0.1, // Add slight randomization
                             enumerable: true,
                             configurable: true
                         });
