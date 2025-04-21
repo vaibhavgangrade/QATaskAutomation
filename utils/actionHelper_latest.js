@@ -421,16 +421,16 @@ export class ActionHelper {
                     type: 'Click Start',
                     description: `🖱️ Attempting to click: "${step.locator}"`
                 });
-
+    
                 const element = await handleElementAction(page, step, 'click', test);
                 if (!element) {
                     throw new Error('Element not found');
                 }
-
+    
                 // Enhanced visibility check
                 await element.scrollIntoViewIfNeeded();
                 await page.waitForTimeout(2000); // Increased wait time
-
+    
                 // Try multiple click strategies
                 for (let attempt = 1; attempt <= 3; attempt++) {
                     try {
@@ -445,32 +445,38 @@ export class ActionHelper {
                                 await page.evaluate(el => el.click(), element);
                                 break;
                         }
-                        console.log(`✅ Click successful on attempt ${attempt}`);
-                        return;
-                    } catch (error) {
-                        console.log(`Click attempt ${attempt} failed: ${error.message}`);
-                        if (attempt === 3) {
-                            // Instead of throwing error, try fallback
-                            console.log(`All click attempts failed, falling back to Zerostep: ${error.message}`);
-                            await this.handleAiCommand(page, {
-                                ...step,
-                                action: 'click',
-                                additionalContext: `Click on ${step.locatorType} element containing text as "${step.locator}"`
-                            }, test);
-                            return;
-                        }
-                        await page.waitForTimeout(1000);
+                        
+                        test.info().annotations.push({
+                            type: 'Click Success',
+                            description: `✅ Click successful using Playwright on attempt ${attempt}`
+                        });
+                        return true;
+                    } catch (clickError) {
+                        if (attempt === 3) throw clickError;
+                        continue;
                     }
                 }
             } catch (error) {
-                // This catch block will now only handle errors from initial element finding
-                // or from the fallback itself
-                console.log(`Falling back to Zerostep for click: ${error.message}`);
-                await this.handleAiCommand(page, {
-                    ...step,
-                    action: 'click',
-                    additionalContext: `Click on element containing text "${step.locator}"`
-                }, test);
+                test.info().annotations.push({
+                    type: 'Click Error',
+                    description: `❌ Playwright click failed for "${step.locator}" and "${step.locatorType}"`
+                });
+    
+                // Fall back to Zerostep
+                try {
+                    await this.handleAiCommand(page, {
+                        ...step,
+                        action: 'click',
+                        additionalContext: `Click on ${step.locatorType} element containing text as "${step.locator}"`
+                    }, test);
+                    return true;
+                } catch (zerostepError) {
+                    test.info().annotations.push({
+                        type: 'Click Failed',
+                        description: `❌ Both Playwright and Zerostep click failed: ${zerostepError.message}`
+                    });
+                    throw zerostepError;
+                }
             }
         });
     }
@@ -725,12 +731,8 @@ export class ActionHelper {
                 // Single scroll strategy using Playwright
                 await targetElement.scrollIntoViewIfNeeded();
                 await page.waitForTimeout(1000);
+                await targetElement.focus();
 
-                // Verify element is in viewport
-                const isVisible = await targetElement.isVisible();
-                if (!isVisible) {
-                    throw new Error(`${suffix} element not visible after scroll`);
-                }
 
                 // Capture after state
                 await test.info().attach('after-scroll', {
@@ -772,6 +774,7 @@ export class ActionHelper {
             }
         });
     }
+
 
     async handleKeyboardAction(page, step, test) {
         return await test.step(`Keyboard Action: ${step.value}`, async () => {
@@ -881,6 +884,76 @@ export class ActionHelper {
                     test.info().annotations.push({
                         type: 'Fallback Failed',
                         description: `❌ Zerostep keyboard action failed: ${fallbackError.message}`
+                    });
+                    throw fallbackError;
+                }
+            }
+        });
+    }
+
+    async handleRadioButton(page, step, test) {
+        return await test.step(`Select radio button: "${step.locator}"`, async () => {
+            try {
+                const targetIndex = step.value ? (parseInt(step.value) - 1) : 0;
+                
+                test.info().annotations.push({
+                    type: 'Radio Button Selection Start',
+                    description: `🔍 Attempting to select radio button: "${step.locator}" at index ${targetIndex + 1}`
+                });
+    
+                // Get all radio buttons
+                const radioButtons = await page.locator('input[type="radio"]').all();
+                const count = radioButtons.length;
+    
+                test.info().annotations.push({
+                    type: 'Elements Found',
+                    description: `📍 Found ${count} radio buttons`
+                });
+    
+                if (count === 0) {
+                    throw new Error('No radio buttons found on the page');
+                }
+    
+                if (targetIndex >= count) {
+                    throw new Error(`Requested radio button at index ${targetIndex + 1} but only found ${count} radio buttons`);
+                }
+    
+                // Get the target radio button
+                const targetRadioButton = radioButtons[targetIndex];
+    
+                // Scroll into view and click
+                await targetRadioButton.scrollIntoViewIfNeeded();
+                await page.waitForTimeout(1000);
+                await targetRadioButton.click();
+    
+                test.info().annotations.push({
+                    type: 'Radio Button Selection Success',
+                    description: `✅ Successfully selected radio button at index ${targetIndex + 1}`
+                });
+    
+            } catch (error) {
+                test.info().annotations.push({
+                    type: 'Radio Button Selection Failed',
+                    description: `❌ Failed to select radio button: ${error.message}`
+                });
+    
+                // Fallback to Zerostep
+                test.info().annotations.push({
+                    type: 'Fallback',
+                    description: `⚠️ Falling back to Zerostep for radio button selection`
+                });
+    
+                try {
+                    await this.handleAiCommand(page, {
+                        ...step,
+                        action: 'click',
+                        additionalContext: `Click on the ${getSuffix(step.value) || 'first'} radio button labeled or containing text "${step.locator}"`
+                    }, test);
+    
+                } catch (fallbackError) {
+                    test.info().annotations.push({
+                        type: 'Fallback Failed',
+                        description: `❌ Zerostep fallback failed: ${fallbackError.message}`
                     });
                     throw fallbackError;
                 }

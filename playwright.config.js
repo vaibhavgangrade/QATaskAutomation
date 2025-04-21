@@ -3,26 +3,15 @@ const { defineConfig, devices } = require('@playwright/test');
 
 // Generate random viewport dimensions
 const getRandomViewport = () => ({
-    width: 1480 + Math.floor(Math.random() * 100),
+    width: 1920 + Math.floor(Math.random() * 100),
     height: 1080 + Math.floor(Math.random() * 100)
 });
 
 // Generate random user agent
 const getRandomUserAgent = () => {
-    const userAgents = [
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
-    ];
-    return userAgents[Math.floor(Math.random() * userAgents.length)];
+    const versions = ['112', '113', '114', '115', '116', '117', '118', '119', '120', '121', '122'];
+    const randomVersion = versions[Math.floor(Math.random() * versions.length)];
+    return `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${randomVersion}.0.0.0 Safari/537.36`;
 };
 
 // Helper function to get Chrome version from user agent
@@ -43,13 +32,7 @@ module.exports = defineConfig({
     },
 
     reporter: [
-        ['html', { 
-            open: 'always',
-            // Add template option to include custom stats section in HTML report
-            template: {
-                head: '<style> .step-stats { background-color: #f5f5f5; padding: 10px; margin-top: 10px; border-radius: 5px; } .step-stats h3 { margin-top: 0; } .step-stats-table { width: 100%; border-collapse: collapse; } .step-stats-table th, .step-stats-table td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; } </style>'
-            }
-        }],
+        ['html', { open: 'always' }],
         ['allure-playwright', {
             detail: true,
             outputFolder: 'allure-results',
@@ -63,8 +46,7 @@ module.exports = defineConfig({
                 Retailer: process.env.RETAILER,
                 ExcelDir: process.env.EXCEL_DIR
             }
-        }],
-        ['list', { printSteps: true }] // Add list reporter to show steps in console
+        }]
     ],
 
     use: {
@@ -86,29 +68,16 @@ module.exports = defineConfig({
         deviceScaleFactor: 1,
         hasTouch: false,
         isMobile: false,
-        ignoreHTTPSErrors: true,
         javaScriptEnabled: true,
         permissions: ['geolocation', 'notifications'],
+        userAgent: getRandomUserAgent(),
         
-        // Advanced antibot options
-        extraHTTPHeaders: {
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Sec-CH-UA': '"Chromium";v="122", "Google Chrome";v="122"',
-            'Sec-CH-UA-Mobile': '?0',
-            'Sec-CH-UA-Platform': '"Windows"',
-            'Sec-Fetch-Dest': 'document',
-            'Sec-Fetch-Mode': 'navigate',
-            'Sec-Fetch-Site': 'none',
-            'Sec-Fetch-User': '?1',
-            'Upgrade-Insecure-Requests': '1',
-        },
-
         launchOptions: {
             args: [
                 '--disable-blink-features=AutomationControlled',
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
-                // '--enable-javascript',
+                '--enable-javascript',
                 '--enable-gpu',
                 '--enable-webgl',
                 '--disable-web-security',
@@ -121,17 +90,29 @@ module.exports = defineConfig({
                 '--no-default-browser-check',
                 '--no-first-run',
                 '--no-zygote',
-                '--disable-infobars',
-                '--cipher-suite-blacklist=0x0088,0x0087,0x0039,0x0038',
-                '--tls-version-min=tls1.2',
-                '--window-position=0,0',
-                '--user-agent-client-hints'
+                '--disable-infobars'
             ],
             ignoreDefaultArgs: [
                 '--enable-automation',
                 '--enable-blink-features=AutomationControlled'
             ]
-        }
+        },
+
+    //     // Update headers for Blue Nile
+        // extraHTTPHeaders: {
+        //     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+        //     'Accept-Language': 'en-US,en;q=0.9',
+        //     'Accept-Encoding': 'gzip, deflate, br',
+        //     'Connection': 'keep-alive',
+        //     'Upgrade-Insecure-Requests': '1',
+        //     'sec-ch-ua': `"Google Chrome";v="${getChromeVersion(getRandomUserAgent())}", "Chromium";v="${getChromeVersion(getRandomUserAgent())}", "Not=A?Brand";v="99"`,
+        //     'sec-ch-ua-mobile': '?0',
+        //     'sec-ch-ua-platform': '"Windows"',
+        //     'sec-fetch-dest': 'document',
+        //     'sec-fetch-mode': 'navigate',
+        //     'sec-fetch-site': 'cross-site',
+        //     'sec-fetch-user': '?1'
+        // }
     },
 
     // Project settings

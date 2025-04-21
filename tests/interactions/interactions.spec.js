@@ -5,8 +5,8 @@ import fs from 'fs';
 import { ActionHelper } from '../../utils/actionHelper.js';
 import dotenv from 'dotenv';
 import { retailerConfig } from '../../config/retailers.js';
-const initialBrowserSetup = require('../../utils/initialBrowserSetup.js');
-const { createBrowserSession } = initialBrowserSetup;
+import initialBrowserSetup from '../../utils/initialBrowserSetup.js';
+import { addStealthScripts } from '../../stealth.js';
 
 dotenv.config();
 const retailer = process.env.RETAILER || 'amazon';
@@ -25,12 +25,12 @@ async function captureScreenshot(page, timeout = 30000) {
         // Attempt screenshot with optimized options
         return await page.screenshot(
             {
-                timeout: timeout,
-                type: 'jpeg',
-                quality: 80,
-                scale: 'css',
-                animations: 'disabled'
-            });
+            timeout: timeout,
+            type: 'jpeg',
+            quality: 80,
+            scale: 'css',
+            animations: 'disabled'
+        });
     } catch (error) {
         console.warn(`Primary screenshot capture failed: ${error.message}`);
         // Fallback attempt with minimal options
@@ -47,13 +47,74 @@ async function captureScreenshot(page, timeout = 30000) {
     }
 }
 
-// Move test configuration to top level
-test.use({
-    retries: 1,
-    actionTimeout: 30000,
-    navigationTimeout: 30000,
-    trace: 'retain-on-failure'
-});
+// Fix the handleActionWithRecovery function
+async function handleActionWithRecovery(page, action, maxAttempts = 2) {
+    let lastError;
+    
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            // Add random delay between attempts
+            if (attempt > 1) {
+                await page.waitForTimeout(3000 + Math.random() * 5000);
+            }
+            
+            // Attempt the action
+            await action();
+            return;
+            
+        } catch (error) {
+            lastError = error;
+            console.log(`Attempt ${attempt} failed:`, error.message);
+            
+            // Safely check error messages
+            const errorMessage = error?.message || '';
+            
+            // Check if it's a bot detection or other specific error
+            if (errorMessage.toLowerCase().includes('blocked') || 
+                errorMessage.toLowerCase().includes('captcha') || 
+                errorMessage.toLowerCase().includes('security check') ||
+                errorMessage.toLowerCase().includes('no valid target found')) {
+                
+                console.log(`Detected potential issue, implementing recovery strategy...`);
+                
+                // Implement progressive backoff
+                const backoffDelay = attempt * (5000 + Math.random() * 5000);
+                await page.waitForTimeout(backoffDelay);
+                
+                try {
+                    // Check if page is still responsive
+                    await page.evaluate(() => document.readyState);
+                    
+                    // Try recovery actions based on error type
+                    if (errorMessage.includes('no valid target found')) {
+                        // Wait for content to be available
+                        await page.waitForLoadState('domcontentloaded');
+                        await page.waitForTimeout(2000);
+                    } else {
+                        // For potential blocks, try refreshing the page
+                        if (attempt === maxAttempts) {
+                            await page.reload({ waitUntil: 'domcontentloaded' });
+                            await page.waitForTimeout(3000);
+                        }
+                    }
+                } catch (recoveryError) {
+                    console.warn('Recovery action failed:', recoveryError.message);
+                }
+            } else {
+                // For other errors, use shorter delays
+                await page.waitForTimeout(1000 + Math.random() * 2000);
+            }
+            
+            // If this was the last attempt, prepare to throw the error
+            if (attempt === maxAttempts) {
+                console.error(`All ${maxAttempts} attempts failed for action`);
+            }
+        }
+    }
+    
+    // If we get here, all attempts failed
+    throw new Error(`Action failed after ${maxAttempts} attempts. Last error: ${lastError?.message || 'Unknown error'}`);
+}
 
 // Define test cases at the top level
 const testCases = (() => {
@@ -69,294 +130,270 @@ const testCases = (() => {
     }
 })();
 
-// Initial navigation with better error handling and retry mechanism
-async function navigateWithRetry(page, url, maxRetries = 2) {
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        try {
-            await page.goto(url, {
-                waitUntil: 'domcontentloaded',
-                timeout: 60000
-            });
-            return;
-        } catch (err) {
-            console.warn(`Navigation attempt ${attempt} failed:`, err);
-            if (attempt === maxRetries) throw err;
-            await page.waitForTimeout(2000); // Wait before retry
-        }
-    }
-}
-
 test.describe(`${retailer.toUpperCase()} E2E Test Suite`, () => {
     test.setTimeout(300000);
-    let warmContext;
+    let sharedContext;
+
+    const executionStats = {
+        retailer,
+        domain: config.domain,
+        totalSteps: 0,
+        playwrightSteps: 0,
+        zerostepSteps: 0,
+        failedSteps: 0,
+        startTime: new Date(),
+        endTime: null
+    };
 
     test.beforeAll(async ({ browser }, testInfo) => {
-        try {
-            testInfo.annotations.push({ type: 'epic', description: 'E2E Tests' });
-            testInfo.annotations.push({ type: 'feature', description: retailer.toUpperCase() + ' E2E Tests' });
+        // sharedContext = await browser.newContext();
+        // await initialBrowserSetup.setupBrowser(sharedContext);
 
-            warmContext = await createBrowserSession(browser);
-        } catch (error) {
-            console.error('Failed to create browser session:', error);
-            throw error;
-        }
+        testInfo.annotations.push({ type: 'epic', description: 'E2E Tests' });
+        testInfo.annotations.push({ type: 'feature', description: retailer.toUpperCase() + ' E2E Tests' });
     });
 
-    test.afterAll(async () => {
-        if (warmContext) {
-            await warmContext.close().catch(err => console.error('Error closing warm context:', err));
-        }
-    });
-
-    test.beforeEach(async ({ browser, context }, testInfo) => {
+    test.beforeEach(async ({ browser, context, page }, testInfo) => {
+        // Add stealth scripts to the page
+        await addStealthScripts(page);
+        
+        // Add random delay to seem more human-like
+        await page.waitForTimeout(1000 + Math.random() * 2000);
+        
+        // Add basic test information annotations
         testInfo.annotations.push(
             { type: 'Browser', description: testInfo.project.name },
             { type: 'Test Environment', description: `${retailer.toUpperCase()} - ${config.domain}` }
         );
     });
 
-    test.afterEach(async ({ page, context }, testInfo) => {
-        try {
-            if (testInfo.status !== 'passed') {
-                const screenshot = await captureScreenshot(page);
+    test.afterEach(async ({ page }, testInfo) => {
+        if (testInfo.status !== 'passed') {
+            try {
+                const screenshot = await captureScreenshot(page, 10000);
                 if (screenshot) {
                     await testInfo.attach(`${retailer}-error-state`, {
                         body: screenshot,
                         contentType: 'image/jpeg'
                     });
                 }
+
+                const failureDetails = {
+                    retailer,
+                    testId: testInfo.title,
+                    status: testInfo.status,
+                    error: testInfo.error?.message,
+                    duration: testInfo.duration,
+                    screenshotCaptured: !!screenshot
+                };
+
+                await testInfo.attach('test-failure-details', {
+                    body: Buffer.from(JSON.stringify(failureDetails, null, 2)),
+                    contentType: 'application/json'
+                });
+
+                testInfo.annotations.push({
+                    type: 'description',
+                    description: `Test failed: ${testInfo.error?.message}`
+                });
+            } catch (error) {
+                console.error('Failed to capture failure state:', error);
             }
-        } catch (error) {
-            console.error('Failed to capture failure state:', error);
-        } finally {
-            await initialBrowserSetup.cleanup(page, context).catch(err => 
-                console.error('Cleanup error:', err)
-            );
         }
     });
 
+    test.afterAll(async ({ }, testInfo) => {
+        executionStats.endTime = new Date();
+        const duration = executionStats.endTime - executionStats.startTime;
+        
+        // Calculate success rate based on successful steps
+        const successfulSteps = executionStats.playwrightSteps + executionStats.zerostepSteps;
+        const totalSteps = executionStats.totalSteps || 1; // Prevent division by zero
+        const successRate = Math.round((successfulSteps / totalSteps) * 100);
+
+        const executionSummary = {
+            retailer: retailer.toUpperCase(),
+            duration: `${Math.round(duration / 1000)}s`,
+            steps: {
+                total: totalSteps,
+                playwright: executionStats.playwrightSteps,
+                zerostep: executionStats.zerostepSteps,
+                failed: executionStats.failedSteps
+            },
+            success_rate: `${successRate}%`
+        };
+
+        // Add summary to test report with proper percentage calculations
+        testInfo.annotations.push({
+            type: 'Execution Summary',
+            description: `
+                🎯 Total Steps: ${totalSteps}
+                ⚡ Playwright Steps: ${executionStats.playwrightSteps} (${Math.round((executionStats.playwrightSteps/totalSteps)*100) || 0}%)
+                🤖 Zerostep Steps: ${executionStats.zerostepSteps} (${Math.round((executionStats.zerostepSteps/totalSteps)*100) || 0}%)
+                ❌ Failed Steps: ${executionStats.failedSteps}
+                ✅ Success Rate: ${successRate}%
+                ⏱️ Total Duration: ${Math.round(duration / 1000)}s
+            `
+        });
+
+        await testInfo.attach('execution-summary', {
+            body: Buffer.from(JSON.stringify(executionSummary, null, 2)),
+            contentType: 'application/json'
+        });
+    });
+
     Object.entries(testCases).forEach(([testId, steps]) => {
-        test(`${retailer.toUpperCase()} - ${testId}`, async ({ browser }, testInfo) => {
-            // Remove the duplicate initialization and keep only one stepStats declaration
-            const stepStats = {
-                totalSteps: steps.filter(step => step.Enabled?.toLowerCase() !== 'no').length,
-                executedSteps: 0,
-                playwrightSteps: 0,
-                aiSteps: 0,
-                failedSteps: 0,
-                skippedSteps: 0
-            };
+        test(`${retailer.toUpperCase()} - ${testId}`, async ({ page, context }, testInfo) => {
+            // Initialize browser setup first
+            await initialBrowserSetup.setupBrowser(context);
+            
+            // Add stealth scripts again after setup
+            await addStealthScripts(page);
+            
+            // Add random delay
+            await page.waitForTimeout(1000 + Math.random() * 2000);
 
-            // Modify executeStep to accept stepStats as a parameter
-            const executeStep = async (currentPage, step, actionHelper, test) => {
-                if (!currentPage || currentPage.isClosed()) {
-                    throw new Error('Invalid or closed page');
-                }
-
-                try {
-                    if (step.waitBefore) {
-                        await currentPage.waitForTimeout(parseInt(step.waitBefore));
-                    }
-
-                    switch (step.action.toLowerCase()) {
-                        case 'goto':
-                            stepStats.playwrightSteps++;
-                            await actionHelper.handleGoto(currentPage, step, test);
-                            if (initialBrowserSetup.handleAntibotChallenge) {
-                                await initialBrowserSetup.handleAntibotChallenge(currentPage);
-                            }
-                            break;
-                        case 'type':
-                            stepStats.playwrightSteps++;
-                            await actionHelper.handleInputData(currentPage, step, test);
-                            break;
-                        case 'click':
-                            stepStats.playwrightSteps++;
-                            await actionHelper.handleTextBasedClick(currentPage, step, test);
-                            break;
-                        case 'scroll':
-                            stepStats.playwrightSteps++;
-                            await actionHelper.handleScroll(currentPage, step, test);
-                            break;
-                        case 'waitfortext':
-                            stepStats.playwrightSteps++;
-                            await actionHelper.handleCheckVisible(currentPage, step, test);
-                            break;
-                        case 'assert':
-                            stepStats.playwrightSteps++;
-                            await actionHelper.handleAssert(currentPage, step, test);
-                            break;
-                        case 'cartassert':
-                            stepStats.playwrightSteps++;
-                            await actionHelper.handleCartAssert(currentPage, step, test);
-                            break;
-                        default:
-                            if (!step.action) {
-                                throw new Error('Missing action in step');
-                            }
-                            stepStats.aiSteps++;
-                            await actionHelper.handleAiCommand(currentPage, step, test);
-                            break;
-                    }
-
-                    if (step.waitAfter) {
-                        await currentPage.waitForTimeout(parseInt(step.waitAfter));
-                    }
-                } catch (error) {
-                    console.error(`Failed to execute step ${step.action}:`, error);
-                    throw error;
-                }
-            };
-
-            // Use the warm context or create a new one if needed
-            const context = warmContext || await createBrowserSession(browser);
-            const page = await context.newPage();
             const actionHelper = new ActionHelper(page);
 
-            let currentPage = page;
+            // Reset execution stats for this test
+            executionStats.totalSteps = steps.filter(step => step.Enabled?.toLowerCase() !== 'no').length;
+            executionStats.playwrightSteps = 0;
+            executionStats.zerostepSteps = 0;
+            executionStats.failedSteps = 0;
+
+            testInfo.annotations.push(
+                { type: 'Test ID', description: testId },
+                { type: 'Steps Count', description: String(executionStats.totalSteps) },
+                { type: 'Retailer', description: retailer.toUpperCase() }
+            );
 
             try {
-                // Handle new pages with error catching
-                context.on('page', async (newPage) => {
-                    try {
-                        await initialBrowserSetup.setupPage(newPage).catch(err =>
-                            console.warn('New page setup warning:', err)
-                        );
-                        currentPage = newPage;
-                        actionHelper.setPage(newPage);
-                    } catch (error) {
-                        console.warn('Page event handler warning:', error);
-                    }
+                // Simplified initial navigation
+                await test.step(`Initial setup`, async () => {
+                    // Set longer timeout for initial navigation
+                    page.setDefaultTimeout(60000);
+                    
+                    // Add stealth scripts before navigation
+                    await addStealthScripts(page);
+                    
+                    // Random delay before navigation
+                    await page.waitForTimeout(2000 + Math.random() * 3000);
+                    
+                    // Basic navigation without complex waiting
+                    await page.goto(`https://www.${config.domain}`, {
+                        waitUntil: 'domcontentloaded'
+                    });
+
+                    // Simple wait for page load
+                    await page.waitForLoadState('load').catch(() => {});
+                    
+                    // Add random delay after navigation
+                    await page.waitForTimeout(2000 + Math.random() * 2000);
                 });
 
-                // Initial navigation with better error handling and retry mechanism
-                await navigateWithRetry(currentPage, `https://www.${config.domain}`);
-
-                // Check for antibot challenges ONLY after initial navigation
-                if (initialBrowserSetup.handleAntibotChallenge) {
-                    await initialBrowserSetup.handleAntibotChallenge(currentPage);
-                }
-
-                // Execute test steps with better error handling
+                // Execute test steps
                 for (const step of steps) {
-                    if (step.Enabled?.toLowerCase() === 'no') {
-                        stepStats.skippedSteps++;
-                        continue;
-                    }
+                    if (step.Enabled?.toLowerCase() === 'no') continue;
 
                     await test.step(`${step.action}: ${step.locator || ''}`, async () => {
+                        const beforeAnnotations = testInfo.annotations.length;
+
                         try {
-                            if (currentPage.isClosed()) {
-                                throw new Error('Current page is closed');
+                            await handleActionWithRecovery(page, async () => {
+                                // Minimal delay before action
+                                if (step.waitBefore) {
+                                    await page.waitForTimeout(parseInt(step.waitBefore));
+                                }
+
+                                // Quick content check
+                                await Promise.race([
+                                    page.waitForFunction(() => {
+                                        return document.readyState === 'complete' && 
+                                               document.body !== null;
+                                    }, { timeout: 5000 }),
+                                    page.waitForTimeout(6000)
+                                ]).catch(() => {});
+
+                                // Execute the action
+                                switch (step.action.toLowerCase()) {
+                                    case 'goto':
+                                        await actionHelper.handleGoto(page, step, test);
+                                        break;
+                                    case 'type':
+                                        await actionHelper.handleInputData(page, step, test);
+                                        break;
+                                    case 'click':
+                                        await actionHelper.handleTextBasedClick(page, step, test);
+                                        break;
+                                    case 'select':
+                                        await actionHelper.handleRadioButton(page, step, test);
+                                        break;
+                                    case 'scroll':
+                                        await actionHelper.handleScroll(page, step, test);
+                                        break;
+                                    case 'waitfortext':
+                                        await actionHelper.handleCheckVisible(page, step, test);
+                                        break;
+                                    case 'assert':
+                                        await actionHelper.handleAssert(page, step, test);
+                                        break;
+                                    case 'cartassert':
+                                        await actionHelper.handleCartAssert(page, step, test);
+                                        break;
+                                    default:
+                                        await actionHelper.handleAiCommand(page, step, test);
+                                        break;
+                                }
+
+                                if (step.waitAfter) {
+                                    await page.waitForTimeout(parseInt(step.waitAfter));
+                                }
+                            });
+
+                            // After action execution, check annotations
+                            const newAnnotations = testInfo.annotations.slice(beforeAnnotations);
+                            
+                            // Update step counts based on annotations
+                            if (newAnnotations.some(a => 
+                                a.type === 'AI Command Success' || 
+                                a.description?.includes('Action completed using Zerostep')
+                            )) {
+                                executionStats.zerostepSteps++;
                             }
-
-                            await executeStep(currentPage, step, actionHelper, test);
-
-                            // Increment executed steps count
-                            stepStats.executedSteps++;
+                            else if (newAnnotations.some(a => 
+                                (a.description?.startsWith('✅') || a.description?.startsWith('⚡')) &&
+                                !a.description?.toLowerCase().includes('zerostep')
+                            )) {
+                                executionStats.playwrightSteps++;
+                            }
+                            else if (newAnnotations.some(a => 
+                                a.description?.includes('❌') || 
+                                a.type?.toLowerCase().includes('error')
+                            )) {
+                                executionStats.failedSteps++;
+                            }
                         } catch (error) {
-                            console.error(`Step execution error: ${error.message}`);
-                            stepStats.failedSteps++;
+                            // Check if error was handled by Zerostep
+                            const errorAnnotations = testInfo.annotations.slice(beforeAnnotations);
+                            if (errorAnnotations.some(a => 
+                                a.type === 'AI Command Success' || 
+                                a.description?.includes('Action completed using Zerostep')
+                            )) {
+                                executionStats.zerostepSteps++;
+                            } else {
+                                executionStats.failedSteps++;
+                                testInfo.annotations.push({
+                                    type: 'Execution Error',
+                                    description: `❌ Step failed: ${error.message}`
+                                });
+                            }
                             throw error;
                         }
                     });
                 }
-
-                // Calculate success rate and completion percentage
-                const successRate = Math.round(((stepStats.executedSteps - stepStats.failedSteps) / stepStats.executedSteps) * 100);
-                const completionRate = Math.round((stepStats.executedSteps / stepStats.totalSteps) * 100);
-
-                // Create a more visually prominent HTML summary
-                const htmlSummary = `
-<div class="step-stats-container" style="margin: 20px 0; padding: 15px; border-radius: 8px; background-color: #f5f7fa; border: 1px solid #d0d7de; max-width: 800px; font-family: system-ui, sans-serif;">
-    <h2 style="color: #24292f; margin-top: 0; border-bottom: 1px solid #d0d7de; padding-bottom: 10px; font-size: 18px;">Test Execution Report: ${retailer.toUpperCase()} - ${testId}</h2>
-    <div style="display: flex; margin-bottom: 15px;">
-        <div style="flex: 1; text-align: center; padding: 10px; background-color: ${successRate >= 90 ? '#dafbe1' : successRate >= 70 ? '#fff8c5' : '#ffebe9'}; border-radius: 6px; margin-right: 10px;">
-            <div style="font-size: 22px; font-weight: bold; color: ${successRate >= 90 ? '#1a7f37' : successRate >= 70 ? '#9a6700' : '#cf222e'};">${successRate}%</div>
-            <div style="font-size: 14px; color: #57606a;">Success Rate</div>
-        </div>
-        <div style="flex: 1; text-align: center; padding: 10px; background-color: #f6f8fa; border-radius: 6px;">
-            <div style="font-size: 22px; font-weight: bold; color: #24292f;">${completionRate}%</div>
-            <div style="font-size: 14px; color: #57606a;">Completion Rate</div>
-        </div>
-    </div>
-    <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
-        <tr style="background-color: #f6f8fa;">
-            <th style="text-align: left; padding: 8px 12px; border: 1px solid #d0d7de;">Metric</th>
-            <th style="text-align: center; padding: 8px 12px; border: 1px solid #d0d7de;">Count</th>
-            <th style="text-align: center; padding: 8px 12px; border: 1px solid #d0d7de;">Percentage</th>
-        </tr>
-        <tr>
-            <td style="padding: 8px 12px; border: 1px solid #d0d7de;">Total Available Steps</td>
-            <td style="text-align: center; padding: 8px 12px; border: 1px solid #d0d7de;">${stepStats.totalSteps}</td>
-            <td style="text-align: center; padding: 8px 12px; border: 1px solid #d0d7de;">100%</td>
-        </tr>
-        <tr style="background-color: #f6f8fa;">
-            <td style="padding: 8px 12px; border: 1px solid #d0d7de;">Executed Steps Count</td>
-            <td style="text-align: center; padding: 8px 12px; border: 1px solid #d0d7de;">${stepStats.executedSteps}</td>
-            <td style="text-align: center; padding: 8px 12px; border: 1px solid #d0d7de;">${completionRate}%</td>
-        </tr>
-        <tr>
-            <td style="padding: 8px 12px; border: 1px solid #d0d7de;">Step Executed by Playwright</td>
-            <td style="text-align: center; padding: 8px 12px; border: 1px solid #d0d7de;">${stepStats.playwrightSteps}</td>
-            <td style="text-align: center; padding: 8px 12px; border: 1px solid #d0d7de;">${Math.round((stepStats.playwrightSteps / stepStats.executedSteps) * 100)}%</td>
-        </tr>
-        <tr style="background-color: #f6f8fa;">
-            <td style="padding: 8px 12px; border: 1px solid #d0d7de;">Steps Executed by AI</td>
-            <td style="text-align: center; padding: 8px 12px; border: 1px solid #d0d7de;">${stepStats.aiSteps}</td>
-            <td style="text-align: center; padding: 8px 12px; border: 1px solid #d0d7de;">${Math.round((stepStats.aiSteps / stepStats.executedSteps) * 100)}%</td>
-        </tr>
-        <tr>
-            <td style="padding: 8px 12px; border: 1px solid #d0d7de;">Failed Steps Count</td>
-            <td style="text-align: center; padding: 8px 12px; border: 1px solid #d0d7de;">${stepStats.failedSteps}</td>
-            <td style="text-align: center; padding: 8px 12px; border: 1px solid #d0d7de;">${Math.round((stepStats.failedSteps / stepStats.executedSteps) * 100)}%</td>
-        </tr>
-        <tr style="background-color: #f6f8fa;">
-            <td style="padding: 8px 12px; border: 1px solid #d0d7de;">Skipped Steps Count</td>
-            <td style="text-align: center; padding: 8px 12px; border: 1px solid #d0d7de;">${stepStats.skippedSteps}</td>
-            <td style="text-align: center; padding: 8px 12px; border: 1px solid #d0d7de;">${Math.round((stepStats.skippedSteps / stepStats.totalSteps) * 100)}%</td>
-        </tr>
-    </table>
-</div>`;
-
-                // Attach the HTML report with a more distinct name
-                await testInfo.attach('📊 Test Execution Summary', {
-                    body: htmlSummary,
-                    contentType: 'text/html'
-                });
-
-                // Add step statistics as annotations for the report
-                testInfo.annotations.push(
-                    { type: 'Step Statistics', description: 'Summary of test step execution' },
-                    { type: 'Total Steps', description: `${stepStats.totalSteps}` },
-                    { type: 'Executed Steps', description: `${stepStats.executedSteps}` },
-                    { type: 'Playwright Steps', description: `${stepStats.playwrightSteps}` },
-                    { type: 'AI Steps', description: `${stepStats.aiSteps}` },
-                    { type: 'Failed Steps', description: `${stepStats.failedSteps}` },
-                    { type: 'Skipped Steps', description: `${stepStats.skippedSteps}` },
-                    { type: 'Success Rate', description: `${successRate}%` },
-                    { type: 'Completion Rate', description: `${completionRate}%` }
-                );
-
-                // Log statistics to console
-                console.log('\n----- Test Step Execution Statistics -----');
-                console.log(`Total Steps: ${stepStats.totalSteps}`);
-                console.log(`Executed Steps: ${stepStats.executedSteps} (${completionRate}%)`);
-                console.log(`Playwright Steps: ${stepStats.playwrightSteps}`);
-                console.log(`AI Steps: ${stepStats.aiSteps}`);
-                console.log(`Failed Steps: ${stepStats.failedSteps}`);
-                console.log(`Skipped Steps: ${stepStats.skippedSteps}`);
-                console.log(`Success Rate: ${successRate}%`);
-                console.log('-----------------------------------------\n');
-
             } catch (error) {
-                console.error(`${retailer.toUpperCase()} Test Case ${testId} failed:`, error);
+                console.error(`Test Case ${testId} failed:`, error);
                 throw error;
-            } finally {
-                // Cleanup only the page, not the context
-                if (currentPage && !currentPage.isClosed()) {
-                    await currentPage.close().catch(() => { });
-                }
             }
         });
     });

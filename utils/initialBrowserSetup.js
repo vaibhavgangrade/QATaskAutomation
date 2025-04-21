@@ -58,7 +58,7 @@ const initialBrowserSetup = {
                     // Override properties with proxy getters
                     const overrideProperty = (obj, prop, value) => {
                         Object.defineProperty(obj, prop, {
-                            get: () => value + Math.random() * 0.1, // Add slight randomization
+                            get: () => value,
                             enumerable: true,
                             configurable: true
                         });
@@ -890,78 +890,67 @@ const initialBrowserSetup = {
  * @returns {Promise<boolean>} - True if handled successfully
  */
 async function handleSliderPuzzle(page) {
-  try {
-    console.log('Checking for slider puzzle CAPTCHA...');
+    try {
+        console.log('Checking for slider puzzle CAPTCHA...');
 
-    // Check if we have a slider puzzle on the page
-    const hasSliderPuzzle = await page.locator('text=Slide right to complete the puzzle').isVisible()
-      .catch(() => false);
-    
-    if (!hasSliderPuzzle) {
-      return false;
-    }
+        const hasSliderPuzzle = await page.locator('text=Slide right to complete the puzzle').isVisible().catch(() => false);
+        
+        if (!hasSliderPuzzle) {
+            return false;
+        }
 
-    console.log('Slider puzzle detected, attempting to solve...');
+        console.log('Slider puzzle detected, attempting to solve...');
 
-    // Find the slider element
-    const sliderElement = await page.locator('button[class*="arrow"], button >> svg[class*="arrow"], button:has([class*="arrow"])').first();
-    
-    if (!await sliderElement.isVisible()) {
-      console.log('Could not find the slider element');
-      return false;
-    }
+        const sliderElement = await page.locator('button[class*="arrow"], button >> svg[class*="arrow"], button:has([class*="arrow"])').first();
+        
+        if (!await sliderElement.isVisible()) {
+            console.log('Could not find the slider element');
+            return false;
+        }
 
-    // Get slider position
-    const sliderBox = await sliderElement.boundingBox();
-    if (!sliderBox) {
-      console.log('Could not get slider element bounds');
-      return false;
-    }
+        const sliderBox = await sliderElement.boundingBox();
+        if (!sliderBox) {
+            console.log('Could not get slider element bounds');
+            return false;
+        }
 
-    // Calculate points for sliding
-    const startX = sliderBox.x + sliderBox.width / 2;
-    const startY = sliderBox.y + sliderBox.height / 2;
-    const endX = startX + 250; // Adjust to slide all the way
-    
-    // Execute the slide with human-like motion
-    await page.mouse.move(startX, startY, { steps: 5 });
-    await page.waitForTimeout(300 + Math.random() * 200);
-    await page.mouse.down();
-    await page.waitForTimeout(200 + Math.random() * 100);
-    
-    // Move in small steps with random delays to appear human-like
-    const steps = 10 + Math.floor(Math.random() * 5);
-    const distance = endX - startX;
-    
-    for (let i = 1; i <= steps; i++) {
-      const stepX = startX + (distance * i / steps);
-      // Add slight variation in Y to make movement more human
-      const stepY = startY + (Math.random() * 2 - 1);
-      await page.mouse.move(stepX, stepY, { steps: 3 });
-      await page.waitForTimeout(30 + Math.random() * 40);
+        const startX = sliderBox.x + sliderBox.width / 2;
+        const startY = sliderBox.y + sliderBox.height / 2;
+        const endX = startX + 250; // Adjust to slide all the way
+        
+        await page.mouse.move(startX, startY, { steps: 5 });
+        await page.waitForTimeout(300 + Math.random() * 200);
+        await page.mouse.down();
+        await page.waitForTimeout(200 + Math.random() * 100);
+        
+        const steps = 10 + Math.floor(Math.random() * 5);
+        const distance = endX - startX;
+        
+        for (let i = 1; i <= steps; i++) {
+            const stepX = startX + (distance * i / steps);
+            const stepY = startY + (Math.random() * 2 - 1);
+            await page.mouse.move(stepX, stepY, { steps: 3 });
+            await page.waitForTimeout(30 + Math.random() * 40);
+        }
+        
+        await page.waitForTimeout(200 + Math.random() * 100);
+        await page.mouse.up();
+        
+        await page.waitForTimeout(2000);
+        
+        const stillHasPuzzle = await page.locator('text=Slide right to complete the puzzle').isVisible().catch(() => false);
+        
+        if (!stillHasPuzzle) {
+            console.log('Slider puzzle solved successfully!');
+            return true;
+        } else {
+            console.log('Slider puzzle still present, verification may have failed');
+            return false;
+        }
+    } catch (error) {
+        console.warn('Error handling slider puzzle:', error);
+        return false;
     }
-    
-    await page.waitForTimeout(200 + Math.random() * 100);
-    await page.mouse.up();
-    
-    // Wait for verification
-    await page.waitForTimeout(2000);
-    
-    // Check if verification was successful (puzzle no longer visible)
-    const stillHasPuzzle = await page.locator('text=Slide right to complete the puzzle').isVisible()
-      .catch(() => false);
-    
-    if (!stillHasPuzzle) {
-      console.log('Slider puzzle solved successfully!');
-      return true;
-    } else {
-      console.log('Slider puzzle still present, verification may have failed');
-      return false;
-    }
-  } catch (error) {
-    console.warn('Error handling slider puzzle:', error);
-    return false;
-  }
 }
 
 // Optimize random delays

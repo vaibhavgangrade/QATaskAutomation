@@ -10,14 +10,19 @@ const retailerConfig = {
         jsfile: 'bluenile.js'
     },
     fakeretailer: {
-        domain: 'nectarsleep.com',
+        domain: 'selectorshub.com',
         excelFile: 'test.xlsx',
         jsfile: 'walmart.js'
     },
     newegg: {
-        domain: 'newegg.com',
+        domain: 'ashleyfurniture.com',
         excelFile: 'newegg.xlsx',
         jsfile: 'costco.js'
+    },
+    bestbuy: {
+        domain: 'bestbuy.com',
+        excelFile: 'bestbuySteps.xlsx',
+        jsfile: 'bestbuy.js'
     }
     
 };

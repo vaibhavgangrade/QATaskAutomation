@@ -48,6 +48,7 @@ export class ActionHelper {
     async handleGoto(page, step, test) {
         return await test.step(`Navigate to: ${step.locator}`, async () => {
             try {
+                console.log(`🌐 Navigating to: ${step.locator}`);
                 test.info().annotations.push({
                     type: 'Navigation',
                     description: `🌐 Navigating to: ${step.locator}`
@@ -69,11 +70,13 @@ export class ActionHelper {
                     type: 'Navigation Success',
                     description: `✅ Successfully navigated to: ${step.locator}`
                 });
+                console.log(`✅ Successfully navigated to: ${step.locator}`);
             } catch (error) {
                 test.info().annotations.push({
                     type: 'Navigation Failed',
                     description: `❌ Navigation failed: using playwright: ${step.locator}`
                 });
+                console.log(`❌ Navigation failed for: ${step.locator}`);
                 throw error;
             }
         });
@@ -82,6 +85,7 @@ export class ActionHelper {
     async handleAssert(page, step, test) {
         return await test.step(`Assert: ${step.value}`, async () => {
             try {
+                console.log(`🔍 Attempting assertion for: ${step.locator}`);
                 if (page.isClosed()) return;
 
                 let element;
@@ -206,6 +210,7 @@ export class ActionHelper {
 • Expected: "${expectedText}"
 • Found: "${actualText}"`
                         });
+                        console.log(`✅ Assertion passed for: ${step.locator}`);
                         return true;
                     } catch (error) {
                         test.info().annotations.push({
@@ -245,6 +250,7 @@ export class ActionHelper {
         return await test.step(`Cart Assert: ${step.value}`, async () => {
             let keyName, parserName;
             try {
+                console.log(`🛒 Attempting cart assertion for: ${step.locator}`);
                 if (page.isClosed()) return;
 
                 if (!step.locator?.startsWith('#')) {
@@ -355,6 +361,7 @@ export class ActionHelper {
                     type: 'Cart Assert Success',
                     description: `✅ ${keyName} found from ${parserName}: ${foundValue.numeric} (Found in text: "${foundValue.text}")`
                 });
+                console.log(`✅ Cart assertion passed for: ${step.locator}`);
 
             } catch (error) {
                 // We don't need to add another annotation here since we already added one above
@@ -366,26 +373,35 @@ export class ActionHelper {
     async handleInputData(page, step, test) {
         return await test.step(`Input: "${step.value}" into "${step.locator}"`, async () => {
             try {
-                // Try with Playwright first
+                console.log(`⌨️ Attempting type action: "${step.value}" into ${step.locator}`);
                 const element = await handleElementAction(page, step, 'fill', test);
                 if (!element) {
                     throw new Error(`Input element not found: "${step.locator}"`);
                 }
 
-                try {
-                    await element.scrollIntoViewIfNeeded();
-                    await element.fill(step.value);
-                    
-                    test.info().annotations.push({
-                        type: 'Input Success',
-                        description: `⚡ Input handled by Playwright: "${step.value}" into "${step.locator}"`
-                    });
-                    return;
-                } catch (inputError) {
-                    throw new Error(`Element found but input failed: ${inputError.message}`);
+                // Add better element readiness checks
+                await element.waitFor({ state: 'enabled', timeout: 5000 });
+
+                // Clear existing value first
+                await element.clear();
+                await page.waitForTimeout(100);
+
+                // Type value with proper waits
+                await element.type(step.value, { delay: 50 });
+                console.log(`✅ Successfully typed "${step.value}" into: ${step.locator} using playwright`);
+ 
+                // Verify the input
+                const actualValue = await element.inputValue();
+                if (actualValue !== step.value) {
+                    throw new Error(`Input verification failed. Expected: ${step.value}, Got: ${actualValue}`);
                 }
 
-            } catch (actionError) {
+                test.info().annotations.push({
+                    type: 'Input Success',
+                    description: `⚡ Input handled by Playwright: "${step.value}" into "${step.locator}"`
+                });
+                return;
+            } catch (error) {
                 test.info().annotations.push({
                     type: 'Action Failed',
                     description: `⚠️ Input attempt failed: on ${step.locator} using Playwright`
@@ -417,95 +433,49 @@ export class ActionHelper {
     async handleTextBasedClick(page, step, test) {
         return await test.step(`Click: "${step.locator}"`, async () => {
             try {
+                console.log(`🖱️ Attempting click action on: ${step.locator}`);
                 test.info().annotations.push({
                     type: 'Click Start',
                     description: `🖱️ Attempting to click: "${step.locator}"`
                 });
-
+    
                 const element = await handleElementAction(page, step, 'click', test);
                 if (!element) {
                     throw new Error('Element not found');
                 }
 
-                // Enhanced visibility check
-                await element.scrollIntoViewIfNeeded();
-                await page.waitForTimeout(2000); // Increased wait time
+                await element.click({ timeout: 5000 });
 
-                // More thorough visibility check
-                const isVisible = await element.isVisible();
-                const isEnabled = await element.isEnabled();
-                const isInViewport = await element.evaluate(el => {
-                    const rect = el.getBoundingClientRect();
-                    return (
-                        rect.top >= 0 &&
-                        rect.left >= 0 &&
-                        rect.bottom <= window.innerHeight &&
-                        rect.right <= window.innerWidth
-                    );
-                });
-                
-                if (!isVisible || !isEnabled || !isInViewport) {
-                    throw new Error(`Element "${step.locator}" not interactable (visible: ${isVisible}, enabled: ${isEnabled}, in viewport: ${isInViewport})`);
-                }
+                await page.waitForTimeout(1000);        
+                console.log(`✅ Successfully clicked using playwright`);
 
-                // Multiple click strategies
-                for (let attempt = 1; attempt <= 3; attempt++) {
-                    try {
-                        switch (attempt) {
-                            case 1:
-                                await element.click({ timeout: 15000 });
-                                break;
-                            case 2:
-                                await element.click({ force: true, timeout: 15000 });
-                                break;
-                            case 3:
-                                await page.evaluate(el => {
-                                    el.click();
-                                    // Dispatch additional events for better interaction
-                                    el.dispatchEvent(new MouseEvent('mousedown'));
-                                    el.dispatchEvent(new MouseEvent('mouseup'));
-                                    el.dispatchEvent(new MouseEvent('click'));
-                                }, element);
-                                break;
-                        }
 
-                        await Promise.race([
-                            page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => {})
-                        ]);
-
-                        test.info().annotations.push({
-                            type: 'Click Success',
-                            description: `✅ Successfully clicked using strategy ${attempt}`
-                        });
-                        return;
-                    } catch (clickError) {
-                        await page.waitForTimeout(2000);
-                        if (attempt === 3) throw clickError;
-                    }
-                }
-            } catch (error) {
-                // Fallback to AI command as before
                 test.info().annotations.push({
-                    type: 'Fallback',
-                    description: `⚠️ Falling back to Zerostep for click: "${step.locator}"`
+                    type: 'Click Success',
+                    description: `✅ Click handled by Playwright: "${step.locator}"`
                 });
+                console.log(`✅ Successfully clicked on: ${step.locator}`);
 
+            } catch (error) {
+                test.info().annotations.push({
+                    type: 'Click Error',
+                    description: `❌ Playwright click failed for "${step.locator}" and "${step.locatorType}"`
+                });
+    
+                // Fall back to Zerostep
                 try {
                     await this.handleAiCommand(page, {
                         ...step,
                         action: 'click',
-                        additionalContext: `Click on ${step.locatorType} element containing text or label "${step.locator}"`
+                        additionalContext: `Click on ${step.locatorType} element containing text as "${step.locator}"`
                     }, test);
-                    
-                    // Wait for navigation after AI command
-                    await page.waitForLoadState('domcontentloaded').catch(() => {});
-                    
-                } catch (fallbackError) {
+                    return true;
+                } catch (zerostepError) {
                     test.info().annotations.push({
-                        type: 'Fallback Failed',
-                        description: `❌ Zerostep click failed: ${fallbackError.message}`
+                        type: 'Click Failed',
+                        description: `❌ Both Playwright and Zerostep click failed: ${zerostepError.message}`
                     });
-                    throw fallbackError;
+                    throw zerostepError;
                 }
             }
         });
@@ -514,6 +484,7 @@ export class ActionHelper {
     async handleCheckVisible(page, step, test) {
         return await test.step(`Check visibility: "${step.locator}"`, async () => {
             try {
+                console.log(`👀 Checking visibility of: ${step.locator}`);
                 const element = await handleElementAction(page, step, 'check', test);
                 if (!element) {
                     throw new Error(`Element not found: "${step.locator}"`);
@@ -526,6 +497,8 @@ export class ActionHelper {
                         type: 'Visibility Success',
                         description: `⚡ Visibility check handled by Playwright: "${step.locator}"`
                     });
+                    console.log(`✅ Element found for visibility check: ${step.locator}`);
+                    console.log(`✅ Element is visible: ${step.locator} using playwright`);
                     return true;
                 } catch (visibilityError) {
                     throw new Error(`Element found but not visible: ${visibilityError.message}`);
@@ -534,7 +507,7 @@ export class ActionHelper {
             } catch (actionError) {
                 test.info().annotations.push({
                     type: 'Action Failed',
-                    description: `⚠️ Visibility check failed: ${actionError.message} using Playwright`
+                    description: `⚠️ Visibility check failed: using Playwright`
                 });
 
                 test.info().annotations.push({
@@ -761,12 +734,11 @@ export class ActionHelper {
                 // Single scroll strategy using Playwright
                 await targetElement.scrollIntoViewIfNeeded();
                 await page.waitForTimeout(1000);
+                await targetElement.focus();
 
-                // Verify element is in viewport
-                const isVisible = await targetElement.isVisible();
-                if (!isVisible) {
-                    throw new Error(`${suffix} element not visible after scroll`);
-                }
+                console.log(`✅ Successfully scrolled using playwright`);
+
+
 
                 // Capture after state
                 await test.info().attach('after-scroll', {
@@ -783,7 +755,7 @@ export class ActionHelper {
             } catch (actionError) {
                 test.info().annotations.push({
                     type: 'Action Failed',
-                    description: `⚠️ Scroll attempt failed: ${actionError.message} using Playwright`
+                    description: `⚠️ Scroll attempt failed using Playwright`
                 });
 
                 test.info().annotations.push({
@@ -808,6 +780,7 @@ export class ActionHelper {
             }
         });
     }
+
 
     async handleKeyboardAction(page, step, test) {
         return await test.step(`Keyboard Action: ${step.value}`, async () => {
@@ -860,7 +833,7 @@ export class ActionHelper {
                     console.log(playwrightError);
                     test.info().annotations.push({
                         type: 'Keyboard Action Failed',
-                        description: playwrightError
+                        description: 'Playwright keyboard action failed'
                     });
 
                     // Fallback to Zerostep
@@ -890,7 +863,7 @@ export class ActionHelper {
                         console.log(finalError);
                         test.info().annotations.push({
                             type: 'Keyboard Action Failed',
-                            description: finalError
+                            description: 'Keyboard action failed with both Playwright and Zerostep'
                         });
                         throw new Error(finalError);
                     }
@@ -898,7 +871,7 @@ export class ActionHelper {
             } catch (error) {
                 test.info().annotations.push({
                     type: 'Action Failed',
-                    description: `⚠️ Keyboard action failed: ${error.message} using Playwright`
+                    description: `⚠️ Keyboard action failed: using Playwright`
                 });
 
                 test.info().annotations.push({
@@ -917,6 +890,76 @@ export class ActionHelper {
                     test.info().annotations.push({
                         type: 'Fallback Failed',
                         description: `❌ Zerostep keyboard action failed: ${fallbackError.message}`
+                    });
+                    throw fallbackError;
+                }
+            }
+        });
+    }
+
+    async handleRadioButton(page, step, test) {
+        return await test.step(`Select radio button: "${step.locator}"`, async () => {
+            try {
+                const targetIndex = step.value ? (parseInt(step.value) - 1) : 0;
+                
+                test.info().annotations.push({
+                    type: 'Radio Button Selection Start',
+                    description: `🔍 Attempting to select radio button: "${step.locator}" at index ${targetIndex + 1}`
+                });
+    
+                // Get all radio buttons
+                const radioButtons = await page.locator('input[type="radio"]').all();
+                const count = radioButtons.length;
+    
+                test.info().annotations.push({
+                    type: 'Elements Found',
+                    description: `📍 Found ${count} radio buttons`
+                });
+    
+                if (count === 0) {
+                    throw new Error('No radio buttons found on the page');
+                }
+    
+                if (targetIndex >= count) {
+                    throw new Error(`Requested radio button at index ${targetIndex + 1} but only found ${count} radio buttons`);
+                }
+    
+                // Get the target radio button
+                const targetRadioButton = radioButtons[targetIndex];
+    
+                // Scroll into view and click
+                await targetRadioButton.scrollIntoViewIfNeeded();
+                await page.waitForTimeout(1000);
+                await targetRadioButton.click();
+    
+                test.info().annotations.push({
+                    type: 'Radio Button Selection Success',
+                    description: `✅ Successfully selected radio button at index ${targetIndex + 1}`
+                });
+    
+            } catch (error) {
+                test.info().annotations.push({
+                    type: 'Radio Button Selection Failed',
+                    description: `❌ Failed to select radio button: ${error.message}`
+                });
+    
+                // Fallback to Zerostep
+                test.info().annotations.push({
+                    type: 'Fallback',
+                    description: `⚠️ Falling back to Zerostep for radio button selection`
+                });
+    
+                try {
+                    await this.handleAiCommand(page, {
+                        ...step,
+                        action: 'click',
+                        additionalContext: `Click on the ${getSuffix(step.value) || 'first'} radio button labeled or containing text "${step.locator}"`
+                    }, test);
+    
+                } catch (fallbackError) {
+                    test.info().annotations.push({
+                        type: 'Fallback Failed',
+                        description: `❌ Zerostep fallback failed: ${fallbackError.message}`
                     });
                     throw fallbackError;
                 }

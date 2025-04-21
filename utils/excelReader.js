@@ -142,9 +142,9 @@ export function convertToAiCommand(step) {
 
         switch (action) {
             case 'click':
-                return `Click on the ${locatorType} element containing text "${locator}"`;
+                return `Click on the ${locatorType} element containing text as "${locator}"`;
             case 'click_ai':
-                return `Click on the ${locatorType} element containing text "${locator}"`;
+                return `Click on the ${locatorType} element containing text as "${locator}"`;
             case 'type':
                 return `Enter '${value}' in the ${locatorType} element with text "${locator}"`;
             case 'select':

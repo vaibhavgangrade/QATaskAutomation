@@ -40,67 +40,6 @@ async function getCommonLocators(page, step) {
 
     console.log(`🔍 Searching for ${locatorType} with text/attribute: "${searchText}"`);
 
-    // Try Playwright's built-in locator methods first
-    try {
-        // Try all possible combinations with Playwright's locator methods
-        const playwrightAttempts = [
-            // getByRole with different attributes
-            async () => page.getByRole(locatorType, { name: searchText, exact: false }),
-            async () => page.getByRole(locatorType, { label: searchText, exact: false }),
-            async () => page.getByRole(locatorType, { text: searchText, exact: false }),
-            async () => page.getByRole(locatorType, { value: searchText, exact: false }),
-            async () => page.getByRole(locatorType, { placeholder: searchText, exact: false }),
-            async () => page.getByRole(locatorType, { checked: searchText, exact: false }),
-            async () => page.getByRole(locatorType, { disabled: searchText, exact: false }),
-            async () => page.getByRole(locatorType, { focused: searchText, exact: false }),
-            async () => page.getByRole(locatorType, { selected: searchText, exact: false }),
-            async () => page.getByRole(locatorType, { expanded: searchText, exact: false }),
-            async () => page.getByRole(locatorType, { arialable: searchText, exact: false }),
-            async () => page.getByRole(locatorType, { datacy: searchText, exact: false }),
-            async () => page.getByRole(locatorType, { datatestid: searchText, exact: false }),
-            async () => page.getByRole(locatorType, { datatest: searchText, exact: false }),
-            async () => page.getByRole(locatorType, { datalabel: searchText, exact: false }),
-            async () => page.getByRole(locatorType, { datavalue: searchText, exact: false }),
-            
-
-            
-            // getByLabel variations
-            async () => page.getByLabel(searchText, { exact: false }),
-            
-            // getByPlaceholder variations
-            async () => page.getByPlaceholder(searchText, { exact: false }),
-            
-            // getByText variations
-            async () => page.getByText(searchText, { exact: false }),
-            
-            // getByAltText variations
-            async () => page.getByAltText(searchText, { exact: false }),
-            
-            // getByTitle variations
-            async () => page.getByTitle(searchText, { exact: false }),
-            
-            // getByTestId variations
-            async () => page.getByTestId(searchText)
-        ];
-
-        // Try each Playwright locator method
-        for (const attempt of playwrightAttempts) {
-            try {
-                const element = await attempt();
-                const count = await element.count();
-                if (count > 0 && await element.first().isVisible()) {
-                    console.log(`✅ Found element using Playwright's built-in locator`);
-                    return element;
-                }
-            } catch (error) {
-                continue;
-            }
-        }
-    } catch (error) {
-        console.log(`⚠️ Playwright built-in locators failed, falling back to existing selectors`);
-    }
-
-    // Your existing comprehensive selector logic starts here
     // Universal ecommerce patterns
     const universalEcommercePatterns = [
         // Generic Product Related
@@ -557,63 +496,38 @@ const radioSpecificPatterns = [
 async function handleElementAction(page, step, actionType, test) {
     return await test.step(`Locating ${step.locatorType}: "${step.locator}"`, async () => {
         try {
-            console.log(`🔍 Searching for ${step.locatorType} with text/attribute: "${step.locator}"`);
-            const element = await getCommonLocators(page, step);
+            await test.step(`Attempting Playwright selectors`, async () => {
+                const element = await getCommonLocators(page, step);
 
-            if (element) {
-                try {
-                    // Handle waitBefore
-                    if (step.waitBefore) {
-                        await page.waitForTimeout(parseInt(step.waitBefore));
-                    }
+                if (element) {
+                    try {
+                        await element.waitFor({ state: 'visible', timeout: 5000 });
 
-                    console.log(`✅ Found element using Playwright's built-in locator`);
-
-                    // Simple visibility check instead of complex state checks
-                    const isVisible = await element.isVisible().catch(() => false);
-                    if (!isVisible) {
-                        await element.scrollIntoViewIfNeeded().catch(() => {});
-                    }
-
-                    // No need for additional waitFor states that might cause issues
-                    if (['click', 'type', 'fill'].includes(actionType.toLowerCase())) {
-                        await element.scrollIntoViewIfNeeded().catch(() => {});
-                    }
-
-                    // Handle waitAfter
-                    if (step.waitAfter) {
-                        await page.waitForTimeout(parseInt(step.waitAfter));
-                    }
-
-                    return element;
-
-                } catch (error) {
-                    // Only log if it's not a standard timeout or visibility issue
-                    if (!error.message.includes('timeout') && !error.message.includes('visible')) {
-                        test.info().annotations.push({
-                            type: 'Element Warning',
-                            description: `⚠️ Element interaction warning: ${error.message}`
+                        // Add Playwright location details
+                        test.info().attachments.push({
+                            name: 'Playwright Location Details',
+                            contentType: 'application/json',
+                            body: Buffer.from(JSON.stringify({
+                                executionMethod: 'Playwright',
+                                elementType: step.locatorType,
+                                locator: step.locator,
+                                selector: await element.evaluate(el => el.outerHTML),
+                                timestamp: new Date().toISOString()
+                            }, null, 2))
                         });
+
+                        return element; // Simply return the element if found
+                    } catch (error) {
+                        await test.step(`⚠️ Element found but not visible: ${error.message}`, async () => { });
+                        return null;
                     }
-                    return element; // Still return the element for the action handler to try
                 }
-            }
 
-            // Only log if element truly not found
-            test.info().annotations.push({
-                type: 'Element Not Found',
-                description: `⚠️ No element found matching: "${step.locator}" (${step.locatorType})`
+                await test.step(`⚠️ No element found with Playwright selectors`, async () => { });
+                return null;
             });
-            return null;
-
         } catch (error) {
-            // Only log critical errors
-            if (!error.message.includes('timeout') && !error.message.includes('visible')) {
-                test.info().annotations.push({
-                    type: 'Critical Error',
-                    description: `❌ Unexpected error: ${error.message}`
-                });
-            }
+            await test.step(`❌ Error in Playwright execution: ${error.message}`, async () => { });
             return null;
         }
     });

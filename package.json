@@ -9,7 +9,8 @@
     "test:amazon": "cross-env RETAILER=amazon npm run clean && cross-env RETAILER=amazon npx playwright test tests/interactions/interactions.spec.js --reporter=allure-playwright,html --config=playwright.config.js && npm run allure:generate && npm run allure:open",
     "test:bluenile": "cross-env RETAILER=bluenile npm run clean && cross-env RETAILER=bluenile npx playwright test tests/interactions/interactions.spec.js --reporter=allure-playwright,html && npm run allure:generate -- --clean -o allure-report && npm run allure:open",
     "test:fakeretailer": "cross-env RETAILER=fakeretailer npm run clean && cross-env RETAILER=fakeretailer npx playwright test tests/interactions/interactions.spec.js --reporter=allure-playwright,html && npm run allure:generate -- --clean -o allure-report && npm run allure:open",
-    "test:newegg": "cross-env RETAILER=newegg npm run clean && cross-env RETAILER=newegg npx playwright test tests/interactions/interactions.spec.js --reporter=allure-playwright,html && npm run allure:generate -- --clean -o allure-report && npm run allure:open"
+    "test:newegg": "cross-env RETAILER=newegg npm run clean && cross-env RETAILER=newegg npx playwright test tests/interactions/interactions.spec.js --reporter=allure-playwright,html && npm run allure:generate -- --clean -o allure-report && npm run allure:open",
+    "test:bestbuy": "cross-env RETAILER=bestbuy npm run clean && cross-env RETAILER=bestbuy npx playwright test tests/interactions/interactions.spec.js --reporter=allure-playwright,html && npm run allure:generate -- --clean -o allure-report && npm run allure:open"
   },
   "keywords": [],
   "author": "",
@@ -31,6 +32,7 @@
     "axios": "^1.8.1",
     "base64url": "^3.0.1",
     "googleapis": "^146.0.0",
-    "open": "^10.1.0"
+    "open": "^10.1.0",
+    "puppeteer-core": "^24.6.1"
   }
 }
